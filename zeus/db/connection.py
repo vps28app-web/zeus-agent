@@ -48,6 +48,20 @@ CREATE TABLE IF NOT EXISTS metrics (
 );
 
 CREATE INDEX IF NOT EXISTS idx_metrics_session ON metrics(session_id);
+
+CREATE TABLE IF NOT EXISTS scheduled_tasks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id TEXT UNIQUE NOT NULL,
+    session_id TEXT NOT NULL,
+    command TEXT NOT NULL,
+    schedule TEXT NOT NULL,
+    description TEXT,
+    next_run TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_tasks_next_run ON scheduled_tasks(next_run);
 """
 
 

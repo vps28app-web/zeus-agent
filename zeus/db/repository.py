@@ -203,3 +203,91 @@ class MetricsRepository:
             }
         finally:
             conn.close()
+
+
+class ScheduledTaskRepository:
+    def __init__(self, db_path: Optional[Path] = None):
+        self.db_path = db_path
+
+    def create(
+        self,
+        task_id: str,
+        session_id: str,
+        command: str,
+        schedule: str,
+        description: Optional[str] = None,
+        next_run: Optional[str] = None,
+    ) -> None:
+        conn = get_connection(self.db_path)
+        try:
+            conn.execute(
+                """INSERT INTO scheduled_tasks
+                (task_id, session_id, command, schedule, description, next_run)
+                VALUES (?, ?, ?, ?, ?, ?)""",
+                (task_id, session_id, command, schedule, description, next_run),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def get(self, task_id: str) -> Optional[Dict[str, Any]]:
+        conn = get_connection(self.db_path)
+        try:
+            row = conn.execute(
+                "SELECT * FROM scheduled_tasks WHERE task_id = ?", (task_id,)
+            ).fetchone()
+            return dict(row) if row else None
+        finally:
+            conn.close()
+
+    def list_all(self) -> List[Dict[str, Any]]:
+        conn = get_connection(self.db_path)
+        try:
+            rows = conn.execute(
+                "SELECT * FROM scheduled_tasks ORDER BY next_run"
+            ).fetchall()
+            return [dict(row) for row in rows]
+        finally:
+            conn.close()
+
+    def list_due(self) -> List[Dict[str, Any]]:
+        conn = get_connection(self.db_path)
+        try:
+            rows = conn.execute(
+                """SELECT * FROM scheduled_tasks
+                WHERE enabled = 1 AND next_run <= datetime('now')
+                ORDER BY next_run""",
+            ).fetchall()
+            return [dict(row) for row in rows]
+        finally:
+            conn.close()
+
+    def update_next_run(self, task_id: str, next_run: str) -> None:
+        conn = get_connection(self.db_path)
+        try:
+            conn.execute(
+                "UPDATE scheduled_tasks SET next_run = ? WHERE task_id = ?",
+                (next_run, task_id),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def set_enabled(self, task_id: str, enabled: bool) -> None:
+        conn = get_connection(self.db_path)
+        try:
+            conn.execute(
+                "UPDATE scheduled_tasks SET enabled = ? WHERE task_id = ?",
+                (int(enabled), task_id),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def delete(self, task_id: str) -> None:
+        conn = get_connection(self.db_path)
+        try:
+            conn.execute("DELETE FROM scheduled_tasks WHERE task_id = ?", (task_id,))
+            conn.commit()
+        finally:
+            conn.close()
