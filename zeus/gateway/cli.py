@@ -123,6 +123,13 @@ def main() -> None:
     # setup command
     setup_parser = subparsers.add_parser("setup", help="Configure a gateway interactively")
     setup_parser.add_argument("platform", choices=["telegram", "whatsapp", "discord"])
+    setup_parser.add_argument("--token", help="Bot token (Telegram/Discord)")
+    setup_parser.add_argument("--chat-id", help="Allowed Telegram chat ID")
+    setup_parser.add_argument("--skip-validation", action="store_true", help="Skip Telegram token validation")
+    setup_parser.add_argument("--allowed-numbers", help="Allowed WhatsApp numbers (comma-separated)")
+    setup_parser.add_argument("--allowed-user-ids", help="Allowed Discord user IDs (comma-separated)")
+    setup_parser.add_argument("--allowed-channel-ids", help="Allowed Discord channel IDs (comma-separated)")
+    setup_parser.add_argument("--whatsapp-url", default="http://127.0.0.1:9877", help="WhatsApp Baileys bridge URL")
 
     args = parser.parse_args()
 
@@ -148,11 +155,15 @@ def main() -> None:
 
     if args.command == "setup":
         if args.platform == "telegram":
-            ok = setup_telegram()
+            ok = setup_telegram(token=args.token, chat_id=args.chat_id, skip_validation=args.skip_validation)
         elif args.platform == "whatsapp":
-            ok = setup_whatsapp()
+            ok = setup_whatsapp(base_url=args.whatsapp_url, allowed_numbers=args.allowed_numbers)
         elif args.platform == "discord":
-            ok = setup_discord()
+            ok = setup_discord(
+                token=args.token,
+                allowed_user_ids=args.allowed_user_ids,
+                allowed_channel_ids=args.allowed_channel_ids,
+            )
         else:
             parser.error("Platform required")
         sys.exit(0 if ok else 1)

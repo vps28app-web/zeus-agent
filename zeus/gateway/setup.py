@@ -80,25 +80,27 @@ def _test_telegram_token(token: str) -> bool:
         return False
 
 
-def setup_telegram() -> bool:
+def setup_telegram(token: str | None = None, chat_id: str | None = None, skip_validation: bool = False) -> bool:
     """Interactively configure the Telegram gateway and save to .env."""
-    print("\n=== Configurar gateway do Telegram ===")
-    print("1. Crie um bot no @BotFather e copie o token.")
-    print("2. Envie /start para o bot no Telegram.")
-    print("3. Descubra seu chat ID em https://api.telegram.org/bot<TOKEN>/getUpdates")
-    print()
+    if token is None:
+        print("\n=== Configurar gateway do Telegram ===")
+        print("1. Crie um bot no @BotFather e copie o token.")
+        print("2. Envie /start para o bot no Telegram.")
+        print("3. Descubra seu chat ID em https://api.telegram.org/bot<TOKEN>/getUpdates")
+        print()
+        token = _get_input("Bot token", secret=True)
 
-    token = _get_input("Bot token", secret=True)
     if not token:
         print("Token obrigatório.")
         return False
 
-    if not _test_telegram_token(token):
+    if not skip_validation and not _test_telegram_token(token):
         retry = _get_input("Token parece inválido. Deseja continuar mesmo assim? (s/N)")
         if retry.lower() not in ("s", "sim", "y", "yes"):
             return False
 
-    chat_id = _get_input("Chat ID permitido")
+    if chat_id is None:
+        chat_id = _get_input("Chat ID permitido")
     if not chat_id:
         print("Chat ID obrigatório para segurança.")
         return False
@@ -119,53 +121,60 @@ def setup_telegram() -> bool:
     return True
 
 
-def setup_whatsapp() -> bool:
+def setup_whatsapp(base_url: str | None = None, allowed_numbers: str | None = None) -> bool:
     """Interactively configure the WhatsApp gateway and save to .env."""
-    print("\n=== Configurar gateway do WhatsApp ===")
-    print("1. A ponte Baileys deve estar rodando.")
-    print("2. Escaneie o QR code com WhatsApp > Linked Devices.")
-    print("3. Use o JID do número permitido (ex: 5511999999999@s.whatsapp.net).")
-    print()
+    if base_url is None and allowed_numbers is None:
+        print("\n=== Configurar gateway do WhatsApp ===")
+        print("1. A ponte Baileys deve estar rodando.")
+        print("2. Escaneie o QR code com WhatsApp > Linked Devices.")
+        print("3. Use o JID do número permitido (ex: 5511999999999@s.whatsapp.net).")
+        print()
 
-    base_url = _get_input("URL da ponte Baileys", default="http://127.0.0.1:9877")
-    number = _get_input("Número permitido (jid)")
-    if not number:
+    if base_url is None:
+        base_url = _get_input("URL da ponte Baileys", default="http://127.0.0.1:9877")
+    if allowed_numbers is None:
+        allowed_numbers = _get_input("Número permitido (jid)")
+    if not allowed_numbers:
         print("Número permitido obrigatório.")
         return False
 
     env_path = _project_env_path()
     content = _read_env_file(env_path)
     content = _upsert_env_var(content, "ZEUS_WHATSAPP_URL", base_url)
-    content = _upsert_env_var(content, "ZEUS_WHATSAPP_ALLOWED_NUMBERS", number)
+    content = _upsert_env_var(content, "ZEUS_WHATSAPP_ALLOWED_NUMBERS", allowed_numbers)
     _write_env_file(env_path, content)
 
     print(f"\nConfiguração salva em {env_path}")
     return True
 
 
-def setup_discord() -> bool:
+def setup_discord(token: str | None = None, allowed_user_ids: str | None = None, allowed_channel_ids: str | None = None) -> bool:
     """Interactively configure the Discord gateway and save to .env."""
-    print("\n=== Configurar gateway do Discord ===")
-    print("1. Crie um app em https://discord.com/developers/applications")
-    print("2. Adicione um Bot e habilite Message Content Intent.")
-    print("3. Copie o token do bot.")
-    print()
+    if token is None and allowed_user_ids is None and allowed_channel_ids is None:
+        print("\n=== Configurar gateway do Discord ===")
+        print("1. Crie um app em https://discord.com/developers/applications")
+        print("2. Adicione um Bot e habilite Message Content Intent.")
+        print("3. Copie o token do bot.")
+        print()
 
-    token = _get_input("Bot token", secret=True)
+    if token is None:
+        token = _get_input("Bot token", secret=True)
     if not token:
         print("Token obrigatório.")
         return False
 
-    user_id = _get_input("User ID permitido (opcional)")
-    channel_id = _get_input("Channel ID permitido (opcional)")
+    if allowed_user_ids is None:
+        allowed_user_ids = _get_input("User ID permitido (opcional)")
+    if allowed_channel_ids is None:
+        allowed_channel_ids = _get_input("Channel ID permitido (opcional)")
 
     env_path = _project_env_path()
     content = _read_env_file(env_path)
     content = _upsert_env_var(content, "ZEUS_DISCORD_TOKEN", token)
-    if user_id:
-        content = _upsert_env_var(content, "ZEUS_DISCORD_ALLOWED_USER_IDS", user_id)
-    if channel_id:
-        content = _upsert_env_var(content, "ZEUS_DISCORD_ALLOWED_CHANNEL_IDS", channel_id)
+    if allowed_user_ids:
+        content = _upsert_env_var(content, "ZEUS_DISCORD_ALLOWED_USER_IDS", allowed_user_ids)
+    if allowed_channel_ids:
+        content = _upsert_env_var(content, "ZEUS_DISCORD_ALLOWED_CHANNEL_IDS", allowed_channel_ids)
     _write_env_file(env_path, content)
 
     print(f"\nConfiguração salva em {env_path}")
