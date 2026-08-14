@@ -9,7 +9,7 @@ from prompt_toolkit.history import FileHistory
 from zeus.core.agent import run_agent, run_summary
 from zeus.core.team import create_default_team, Team, Worker
 from zeus.memory.session_log import get_logger
-from zeus.tools import terminal, file, web, memory_tools, sandbox_client, sandbox, git, code_execution, browser, database  # noqa: F401
+from zeus.tools import terminal, file, web, memory_tools, sandbox_client, sandbox, git, code_execution, browser, database, scheduler  # noqa: F401
 
 
 def main() -> None:
@@ -38,7 +38,7 @@ def main() -> None:
 
     session = PromptSession(history=FileHistory(".zeus_history"))
     print(f"Zeus Agent Harness v0.1.0 (session: {logger.session_id})")
-    print("Digite /sair para encerrar.\n")
+    print("Digite /new para nova sessão, /sair para encerrar.\n")
 
     while True:
         try:
@@ -53,6 +53,10 @@ def main() -> None:
         if text in ("/sair", "/quit", "/exit"):
             print("Saindo...")
             break
+        if text == "/new":
+            logger = get_logger(new_session=True)
+            print(f"Nova sessão: {logger.session_id}\n")
+            continue
 
         logger.log_turn("user", text)
         try:

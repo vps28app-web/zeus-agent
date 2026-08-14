@@ -56,5 +56,7 @@ class SessionLogger:
         return sorted(p.stem for p in _logs_path().glob("*.jsonl"))
 
 
-def get_logger(session_id: Optional[str] = None) -> SessionLogger:
+def get_logger(session_id: Optional[str] = None, new_session: bool = False) -> SessionLogger:
+    if new_session:
+        session_id = None  # force fresh ID
     return SessionLogger(session_id)

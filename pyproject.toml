@@ -1,0 +1,61 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "zeus-agent"
+version = "0.1.0"
+description = "Minimalist AI agent harness in Python"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.8"
+authors = [
+    {name = "Zeus Team"}
+]
+keywords = ["agent", "ai", "llm", "tool-use", "harness"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "requests>=2.32.0",
+    "pyyaml>=6.0",
+    "beautifulsoup4>=4.12.0",
+    "prompt_toolkit>=3.0.0",
+    "websocket-client>=1.8.0",
+    "discord.py>=2.3.0",
+    "croniter>=2.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21",
+    "ruff>=0.1.0",
+]
+
+[project.scripts]
+zeus = "zeus.cli:main"
+zeus-gateway = "zeus.gateway.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/USER/zeus"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["zeus*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py38"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+ignore = ["E501"]
