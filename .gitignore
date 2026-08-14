@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.zeus_history
+.pytest_cache/
+dist/
+build/
+sandbox/rootfs/
+sandbox/sandbox
+gateway/whatsapp/baileys/node_modules/
+gateway/whatsapp/baileys/dist/

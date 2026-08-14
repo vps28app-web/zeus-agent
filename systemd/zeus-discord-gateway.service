@@ -1,0 +1,19 @@
+[Unit]
+Description=Zeus Discord Gateway
+After=network.target zeus-sandbox.service
+Wants=zeus-sandbox.service
+
+[Service]
+Type=simple
+ExecStart=/home/vps28/Documentos/Dev/Zeus/.venv/bin/python -m zeus.gateway
+EnvironmentFile=/home/vps28/Documentos/Dev/Zeus/.env
+WorkingDirectory=/home/vps28/Documentos/Dev/Zeus
+Restart=always
+RestartSec=10
+User=vps28
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=zeus-discord-gateway
+
+[Install]
+WantedBy=multi-user.target

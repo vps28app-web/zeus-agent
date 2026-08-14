@@ -1,0 +1,16 @@
+[Unit]
+Description=Zeus Agent Harness Sandbox
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/home/vps28/Documentos/Dev/Zeus/sandbox/sandbox -addr 127.0.0.1:9876
+Restart=always
+RestartSec=5
+User=root
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=zeus-sandbox
+
+[Install]
+WantedBy=multi-user.target

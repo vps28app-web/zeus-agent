@@ -1,0 +1,19 @@
+[Unit]
+Description=Zeus WhatsApp Gateway (Baileys bridge)
+After=network.target zeus-sandbox.service
+Wants=zeus-sandbox.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/node /home/vps28/Documentos/Dev/Zeus/gateway/whatsapp/baileys/dist/index.js
+EnvironmentFile=/home/vps28/Documentos/Dev/Zeus/.env
+WorkingDirectory=/home/vps28/Documentos/Dev/Zeus/gateway/whatsapp/baileys
+Restart=always
+RestartSec=10
+User=vps28
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=zeus-whatsapp-bridge
+
+[Install]
+WantedBy=multi-user.target
