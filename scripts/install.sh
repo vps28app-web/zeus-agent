@@ -139,6 +139,9 @@ chmod +x "$WRAPPER"
 # Tentar criar link em ~/.local/bin (se existir e estiver no PATH)
 if [[ -d "$HOME/.local/bin" ]]; then
     ln -sf "$WRAPPER" "$HOME/.local/bin/zeus" 2>/dev/null && echo "  link criado em ~/.local/bin/zeus" || true
+    ln -sf "$WRAPPER" "$HOME/.local/bin/Zeus" 2>/dev/null && echo "  link criado em ~/.local/bin/Zeus" || true
+    ln -sf "$WRAPPER" "$HOME/.local/bin/zeus-gateway" 2>/dev/null && echo "  link criado em ~/.local/bin/zeus-gateway" || true
+    echo "  ATENÇÃO: reinicie o terminal ou rode 'hash -r' para atualizar comandos"
 fi
 
 echo ""
