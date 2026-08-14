@@ -47,6 +47,13 @@ class WhatsAppGateway:
     def health(self) -> Dict[str, Any]:
         return self._get("/health")
 
+    def connection(self) -> str:
+        try:
+            data = self._get("/connection")
+            return str(data.get("connection", "unknown"))
+        except Exception:
+            return "unreachable"
+
     def send_message(self, to: str, text: str) -> None:
         """Send a text message to a WhatsApp number (jid format)."""
         chunks = self._chunk_text(text)
@@ -81,6 +88,11 @@ class WhatsAppGateway:
 
         if not self.is_allowed(from_jid):
             print(f"Ignoring message from unauthorized number: {from_jid}")
+            return
+
+        connection = self.connection()
+        if connection != "connected":
+            print(f"WhatsApp not connected ({connection}); skipping message from {from_jid}")
             return
 
         print(f"WhatsApp message from {from_jid}: {text[:80]}")

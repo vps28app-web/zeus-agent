@@ -52,7 +52,7 @@ class TelegramGateway:
         for chunk in chunks:
             payload = {
                 "chat_id": chat_id,
-                "text": chunk,
+                "text": _escape_html(chunk),
                 "parse_mode": "HTML",
             }
             if reply_to_message_id:
@@ -168,3 +168,12 @@ def start_from_env() -> None:
         poll_interval=float(os.getenv("ZEUS_TELEGRAM_POLL_INTERVAL", "1.0")),
     )
     gateway.run()
+
+
+def _escape_html(text: str) -> str:
+    """Escape characters that have special meaning in Telegram HTML mode."""
+    return (
+        text.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
