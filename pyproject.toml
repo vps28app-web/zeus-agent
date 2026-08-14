@@ -43,6 +43,7 @@ dev = [
 
 [project.scripts]
 zeus = "zeus.cli:main"
+Zeus = "zeus.cli:main"
 zeus-gateway = "zeus.gateway.cli:main"
 
 [project.urls]
