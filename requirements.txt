@@ -5,3 +5,4 @@ prompt_toolkit>=3.0.0
 websocket-client>=1.8.0
 discord.py>=2.3.0
 croniter>=2.0.0
+python-dotenv>=1.0.0

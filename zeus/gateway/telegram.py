@@ -6,6 +6,7 @@ Only responds to messages from configured allowed chat IDs.
 
 import json
 import os
+import threading
 import time
 from typing import Any, Dict, List, Optional, Set
 
@@ -13,6 +14,30 @@ import requests
 
 from zeus.core.agent import run_agent
 from zeus.memory.session_log import get_logger
+
+
+DEFAULT_AGENT_TIMEOUT = float(os.getenv("ZEUS_GATEWAY_AGENT_TIMEOUT", "120"))
+
+
+def _run_agent_with_timeout(text: str, session_id: Optional[str], timeout: float = DEFAULT_AGENT_TIMEOUT):
+    """Run the agent in a background thread and return the result or raise TimeoutError."""
+    result: Dict[str, Any] = {"value": None, "error": None}
+
+    def target():
+        try:
+            result["value"] = run_agent(text, session_id=session_id)
+        except Exception as e:
+            result["error"] = e
+
+    thread = threading.Thread(target=target)
+    thread.start()
+    thread.join(timeout)
+
+    if thread.is_alive():
+        raise TimeoutError(f"Agent took longer than {timeout}s")
+    if result["error"]:
+        raise result["error"]
+    return result["value"]
 
 
 class TelegramGateway:
@@ -118,9 +143,13 @@ class TelegramGateway:
         logger.log_turn("user", text, metadata={"chat_id": chat_id, "username": username})
 
         try:
-            response = run_agent(text, session_id=logger.session_id)
+            response = _run_agent_with_timeout(text, session_id=logger.session_id)
             logger.log_turn("assistant", response, metadata={"chat_id": chat_id})
             self.send_message(chat_id, response, reply_to_message_id=message_id)
+        except TimeoutError as e:
+            logger.log_turn("error", str(e), metadata={"chat_id": chat_id})
+            print(f"Agent timeout: {e}")
+            self.send_message(chat_id, "Demorou muito para responder. Tente novamente ou reformule a pergunta.", reply_to_message_id=message_id)
         except Exception as e:
             logger.log_turn("error", str(e), metadata={"chat_id": chat_id})
             print(f"Error handling message: {e}")
