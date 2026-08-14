@@ -18,7 +18,14 @@ def main() -> None:
     parser.add_argument("--session", help="Session ID for logging")
     parser.add_argument("--summary", action="store_true", help="Print session summary after query")
     parser.add_argument("--team", action="store_true", help="Use multi-agent team orchestration")
+    parser.add_argument("gateway", nargs=argparse.REMAINDER, help="Gateway commands (start/setup)")
     args = parser.parse_args()
+
+    if args.gateway:
+        from zeus.gateway.cli import main as gateway_main
+        sys.argv = ["zeus-gateway"] + args.gateway[1:]
+        gateway_main()
+        return
 
     logger = get_logger(args.session)
 
