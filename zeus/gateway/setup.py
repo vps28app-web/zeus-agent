@@ -10,6 +10,19 @@ import requests
 
 def _get_input(prompt: str, default: Optional[str] = None, secret: bool = False) -> str:
     """Read a line from stdin, optionally masking secrets."""
+    try:
+        from prompt_toolkit import prompt as pt_prompt
+        if default:
+            prompt_text = f"{prompt} [{default}]: "
+        else:
+            prompt_text = f"{prompt}: "
+        value = pt_prompt(prompt_text, is_password=secret)
+        return value.strip() or (default or "")
+    except KeyboardInterrupt:
+        raise
+    except Exception:
+        pass
+
     if default:
         prompt = f"{prompt} [{default}]: "
     else:
@@ -18,6 +31,8 @@ def _get_input(prompt: str, default: Optional[str] = None, secret: bool = False)
         try:
             import getpass
             value = getpass.getpass(prompt)
+        except KeyboardInterrupt:
+            raise
         except Exception:
             value = input(prompt)
     else:
@@ -25,9 +40,18 @@ def _get_input(prompt: str, default: Optional[str] = None, secret: bool = False)
     return value.strip() or (default or "")
 
 
+ZUES_CONFIG_DIR = Path.home() / ".zeus"
+DEFAULT_ENV_PATH = ZUES_CONFIG_DIR / ".env"
+
+
 def _project_env_path() -> Path:
-    """Return the path to the project's .env file."""
-    return Path.cwd() / ".env"
+    """Return the default Zeus configuration env file path.
+
+    Configuration is stored in ~/.zeus/.env so it survives reinstalls
+    and works regardless of where the project is cloned.
+    """
+    ZUES_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    return DEFAULT_ENV_PATH
 
 
 def _read_env_file(path: Path) -> str:
@@ -62,31 +86,45 @@ def _upsert_env_var(content: str, key: str, value: str) -> str:
 
 def _test_telegram_token(token: str) -> bool:
     """Verify that the Telegram bot token is valid."""
+    print("Validando token com Telegram...", end=" ", flush=True)
     try:
         response = requests.get(
             f"https://api.telegram.org/bot{token}/getMe",
-            timeout=15,
+            timeout=5,
         )
         response.raise_for_status()
         data = response.json()
         if data.get("ok"):
             bot = data.get("result", {})
-            print(f"Bot OK: @{bot.get('username')} ({bot.get('first_name')})")
+            print(f"OK: @{bot.get('username')} ({bot.get('first_name')})")
             return True
-        print(f"Telegram API error: {data}")
+        print(f"erro: {data}")
+        return False
+    except requests.exceptions.Timeout:
+        print("demorou demais (timeout).")
         return False
     except Exception as e:
-        print(f"Failed to validate Telegram token: {e}")
+        print(f"falhou: {e}")
         return False
 
 
 def setup_telegram(token: str | None = None, chat_id: str | None = None, skip_validation: bool = False) -> bool:
     """Interactively configure the Telegram gateway and save to .env."""
+    try:
+        return _setup_telegram(token, chat_id, skip_validation)
+    except KeyboardInterrupt:
+        print("\n\nConfiguração cancelada pelo usuário.")
+        return False
+
+
+def _setup_telegram(token: str | None = None, chat_id: str | None = None, skip_validation: bool = False) -> bool:
+    """Internal implementation of Telegram setup."""
     if token is None:
         print("\n=== Configurar gateway do Telegram ===")
         print("1. Crie um bot no @BotFather e copie o token.")
         print("2. Envie /start para o bot no Telegram.")
         print("3. Descubra seu chat ID em https://api.telegram.org/bot<TOKEN>/getUpdates")
+        print("   (ou use --skip-validation para pular a verificação)")
         print()
         token = _get_input("Bot token", secret=True)
 
@@ -95,7 +133,13 @@ def setup_telegram(token: str | None = None, chat_id: str | None = None, skip_va
         return False
 
     if not skip_validation and not _test_telegram_token(token):
-        retry = _get_input("Token parece inválido. Deseja continuar mesmo assim? (s/N)")
+        print()
+        print("Não foi possível validar o token. Pode ser:")
+        print("  - token copiado errado")
+        print("  - conexão lenta com api.telegram.org")
+        print("  - bot ainda não criado ou revogado")
+        print()
+        retry = _get_input("Deseja continuar mesmo assim? (s/N)")
         if retry.lower() not in ("s", "sim", "y", "yes"):
             return False
 
@@ -118,11 +162,22 @@ def setup_telegram(token: str | None = None, chat_id: str | None = None, skip_va
     _write_env_file(env_path, content)
 
     print(f"\nConfiguração salva em {env_path}")
+    print(f"\nPara iniciar o gateway, rode:")
+    print(f"  zeus gateway start telegram")
     return True
 
 
 def setup_whatsapp(base_url: str | None = None, allowed_numbers: str | None = None) -> bool:
     """Interactively configure the WhatsApp gateway and save to .env."""
+    try:
+        return _setup_whatsapp(base_url, allowed_numbers)
+    except KeyboardInterrupt:
+        print("\n\nConfiguração cancelada pelo usuário.")
+        return False
+
+
+def _setup_whatsapp(base_url: str | None = None, allowed_numbers: str | None = None) -> bool:
+    """Internal implementation of WhatsApp setup."""
     if base_url is None and allowed_numbers is None:
         print("\n=== Configurar gateway do WhatsApp ===")
         print("1. A ponte Baileys deve estar rodando.")
@@ -150,6 +205,15 @@ def setup_whatsapp(base_url: str | None = None, allowed_numbers: str | None = No
 
 def setup_discord(token: str | None = None, allowed_user_ids: str | None = None, allowed_channel_ids: str | None = None) -> bool:
     """Interactively configure the Discord gateway and save to .env."""
+    try:
+        return _setup_discord(token, allowed_user_ids, allowed_channel_ids)
+    except KeyboardInterrupt:
+        print("\n\nConfiguração cancelada pelo usuário.")
+        return False
+
+
+def _setup_discord(token: str | None = None, allowed_user_ids: str | None = None, allowed_channel_ids: str | None = None) -> bool:
+    """Internal implementation of Discord setup."""
     if token is None and allowed_user_ids is None and allowed_channel_ids is None:
         print("\n=== Configurar gateway do Discord ===")
         print("1. Crie um app em https://discord.com/developers/applications")

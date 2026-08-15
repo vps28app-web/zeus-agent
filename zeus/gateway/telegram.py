@@ -29,7 +29,7 @@ def _run_agent_with_timeout(text: str, session_id: Optional[str], timeout: float
         except Exception as e:
             result["error"] = e
 
-    thread = threading.Thread(target=target)
+    thread = threading.Thread(target=target, daemon=True)
     thread.start()
     thread.join(timeout)
 
@@ -50,14 +50,17 @@ class TelegramGateway:
         base_url: str = "https://api.telegram.org",
         poll_interval: float = 1.0,
         timeout: int = 30,
+        poll_timeout: int = 5,
     ):
         self.token = token
         self.base_url = base_url.rstrip("/")
         self.poll_interval = poll_interval
         self.timeout = timeout
+        self.poll_timeout = poll_timeout
         self.allowed_chat_ids: Set[int] = set(allowed_chat_ids or [])
         self.offset: Optional[int] = None
         self.running = False
+        self._worker_threads: List[threading.Thread] = []
 
     def api_url(self, method: str) -> str:
         return f"{self.base_url}/bot{self.token}/{method}"
@@ -70,6 +73,20 @@ class TelegramGateway:
         )
         response.raise_for_status()
         return response.json()
+
+    def send_chat_action(self, chat_id: int, action: str = "typing") -> None:
+        """Send a chat action (typing, uploading_photo, etc.)."""
+        try:
+            self._post("sendChatAction", {"chat_id": chat_id, "action": action})
+        except Exception:
+            # Chat action is best-effort; don't fail the whole request.
+            pass
+
+    def _typing_indicator(self, chat_id: int, stop_event: threading.Event, interval: float = 4.0):
+        """Keep sending typing actions until stop_event is set."""
+        while not stop_event.is_set():
+            self.send_chat_action(chat_id, "typing")
+            stop_event.wait(interval)
 
     def send_message(self, chat_id: int, text: str, reply_to_message_id: Optional[int] = None) -> None:
         """Send a text message back to a Telegram chat."""
@@ -101,12 +118,12 @@ class TelegramGateway:
         payload = {
             "offset": self.offset,
             "limit": 100,
-            "timeout": int(self.timeout),
+            "timeout": int(self.poll_timeout),
         }
         response = requests.post(
             self.api_url("getUpdates"),
             json=payload,
-            timeout=self.timeout + 10,
+            timeout=self.poll_timeout + 10,
         )
         response.raise_for_status()
         data = response.json()
@@ -120,7 +137,7 @@ class TelegramGateway:
         return chat_id in self.allowed_chat_ids
 
     def handle_update(self, update: Dict[str, Any]) -> None:
-        """Process a single Telegram update."""
+        """Process a single Telegram update in a background worker thread."""
         message = update.get("message") or update.get("edited_message")
         if not message:
             return
@@ -139,21 +156,39 @@ class TelegramGateway:
             return
 
         print(f"Message from {username} ({chat_id}): {text[:80]}")
-        logger = get_logger(f"telegram-{chat_id}-{message_id}")
-        logger.log_turn("user", text, metadata={"chat_id": chat_id, "username": username})
 
-        try:
-            response = _run_agent_with_timeout(text, session_id=logger.session_id)
-            logger.log_turn("assistant", response, metadata={"chat_id": chat_id})
-            self.send_message(chat_id, response, reply_to_message_id=message_id)
-        except TimeoutError as e:
-            logger.log_turn("error", str(e), metadata={"chat_id": chat_id})
-            print(f"Agent timeout: {e}")
-            self.send_message(chat_id, "Demorou muito para responder. Tente novamente ou reformule a pergunta.", reply_to_message_id=message_id)
-        except Exception as e:
-            logger.log_turn("error", str(e), metadata={"chat_id": chat_id})
-            print(f"Error handling message: {e}")
-            self.send_message(chat_id, f"Erro: {e}", reply_to_message_id=message_id)
+        def worker():
+            logger = get_logger(f"telegram-{chat_id}-{message_id}")
+            logger.log_turn("user", text, metadata={"chat_id": chat_id, "username": username})
+
+            typing_stop = threading.Event()
+            typing_thread = threading.Thread(
+                target=self._typing_indicator,
+                args=(chat_id, typing_stop),
+                daemon=True,
+            )
+            typing_thread.start()
+
+            try:
+                response = _run_agent_with_timeout(text, session_id=logger.session_id)
+                logger.log_turn("assistant", response, metadata={"chat_id": chat_id})
+                self.send_message(chat_id, response, reply_to_message_id=message_id)
+            except TimeoutError as e:
+                logger.log_turn("error", str(e), metadata={"chat_id": chat_id})
+                print(f"Agent timeout: {e}")
+                self.send_message(chat_id, "Demorou muito para responder. Tente novamente ou reformule a pergunta.", reply_to_message_id=message_id)
+            except Exception as e:
+                logger.log_turn("error", str(e), metadata={"chat_id": chat_id})
+                print(f"Error handling message: {e}")
+                self.send_message(chat_id, f"Erro: {e}", reply_to_message_id=message_id)
+            finally:
+                typing_stop.set()
+                typing_thread.join(timeout=1)
+
+        t = threading.Thread(target=worker, daemon=True)
+        t.start()
+        self._worker_threads.append(t)
+        self._worker_threads = [t for t in self._worker_threads if t.is_alive()]
 
     def run(self) -> None:
         """Start polling loop."""
@@ -178,6 +213,9 @@ class TelegramGateway:
 
     def stop(self) -> None:
         self.running = False
+        for t in self._worker_threads:
+            if t.is_alive():
+                t.join(timeout=5)
 
 
 def start_from_env() -> None:
@@ -195,6 +233,7 @@ def start_from_env() -> None:
         token=token,
         allowed_chat_ids=allowed_chat_ids,
         poll_interval=float(os.getenv("ZEUS_TELEGRAM_POLL_INTERVAL", "1.0")),
+        poll_timeout=int(os.getenv("ZEUS_TELEGRAM_POLL_TIMEOUT", "5")),
     )
     gateway.run()
 

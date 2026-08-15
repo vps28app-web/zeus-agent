@@ -6,7 +6,7 @@ Wants=zeus-sandbox.service
 [Service]
 Type=simple
 ExecStart=/usr/bin/node /home/vps28/Documentos/Dev/Zeus/gateway/whatsapp/baileys/dist/index.js
-EnvironmentFile=/home/vps28/Documentos/Dev/Zeus/.env
+EnvironmentFile=/home/vps28/.zeus/.env
 WorkingDirectory=/home/vps28/Documentos/Dev/Zeus/gateway/whatsapp/baileys
 Restart=always
 RestartSec=10

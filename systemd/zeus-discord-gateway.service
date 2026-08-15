@@ -7,7 +7,7 @@ Wants=zeus-sandbox.service
 Type=simple
 ExecStart=/home/vps28/Documentos/Dev/Zeus/.venv/bin/python -m zeus.gateway --platform discord
 Environment="ZEUS_GATEWAY_PLATFORM=discord"
-EnvironmentFile=/home/vps28/Documentos/Dev/Zeus/.env
+EnvironmentFile=/home/vps28/.zeus/.env
 WorkingDirectory=/home/vps28/Documentos/Dev/Zeus
 Restart=always
 RestartSec=10

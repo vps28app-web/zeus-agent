@@ -14,12 +14,22 @@ from zeus.gateway.telegram import TelegramGateway
 from zeus.gateway.whatsapp import WhatsAppGateway
 
 
+ZUES_CONFIG_DIR = Path.home() / ".zeus"
+DEFAULT_ENV_PATH = ZUES_CONFIG_DIR / ".env"
+
+
 def _load_env() -> None:
-    """Load .env from the project root if present."""
-    cwd = Path.cwd()
-    env_file = cwd / ".env"
-    if env_file.exists():
-        load_dotenv(env_file)
+    """Load .env from ~/.zeus/.env or the project root if present."""
+    paths = [DEFAULT_ENV_PATH, Path.cwd() / ".env"]
+    for env_file in paths:
+        if env_file.exists():
+            load_dotenv(env_file)
+
+
+def _env_file_path() -> Path:
+    """Return the preferred env file path for the current setup."""
+    ZUES_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    return DEFAULT_ENV_PATH
 
 
 def _telegram_chat_ids_from_env() -> list[int] | None:
@@ -41,6 +51,7 @@ def _start_telegram(poll_interval: float) -> None:
         token=token,
         allowed_chat_ids=allowed_chat_ids,
         poll_interval=poll_interval,
+        poll_timeout=int(os.getenv("ZEUS_TELEGRAM_POLL_TIMEOUT", "5")),
     )
     gateway.run()
 
@@ -81,6 +92,7 @@ def _ask_service_mode(platform: str) -> str:
 
 
 def _start_service(platform: str) -> None:
+    """Install and start a user-level systemd service for the gateway."""
     service_map = {
         "telegram": "zeus-telegram-gateway.service",
         "whatsapp": "zeus-whatsapp-gateway.service",
@@ -89,12 +101,43 @@ def _start_service(platform: str) -> None:
     service = service_map.get(platform)
     if not service:
         raise RuntimeError(f"Unknown platform: {platform}")
+
+    service_path = Path.home() / ".config" / "systemd" / "user" / service
+    service_path.parent.mkdir(parents=True, exist_ok=True)
+
+    env_file = Path.home() / ".zeus" / ".env"
+    cwd = Path.cwd()
+    python = sys.executable
+
+    unit_content = f"""[Unit]
+Description=Zeus {platform.title()} Gateway
+After=network.target
+
+[Service]
+Type=simple
+ExecStart={python} -m zeus.gateway --platform {platform}
+EnvironmentFile={env_file}
+WorkingDirectory={cwd}
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier={service.replace('.service', '')}
+
+[Install]
+WantedBy=default.target
+"""
+    service_path.write_text(unit_content, encoding="utf-8")
+
     try:
-        subprocess.run(["sudo", "systemctl", "restart", service], check=True)
-        print(f"Serviço {service} reiniciado.")
-        print(f"Logs: journalctl -u {service} -f")
+        subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
+        subprocess.run(["systemctl", "--user", "enable", service], check=True)
+        subprocess.run(["systemctl", "--user", "restart", service], check=True)
+        print(f"Serviço {service} instalado e reiniciado.")
+        print(f"Status: systemctl --user status {service}")
+        print(f"Logs:   journalctl --user -u {service} -f")
     except subprocess.CalledProcessError as e:
-        print(f"Falha ao reiniciar serviço: {e}")
+        print(f"Falha ao gerenciar serviço: {e}")
         sys.exit(1)
 
 
