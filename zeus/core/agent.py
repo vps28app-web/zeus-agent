@@ -127,11 +127,14 @@ def run_agent(
     model = None
 
     for turn in range(max_turns):
+        from zeus.memory.context import prune_messages
+        active_messages = prune_messages(messages)
+
         tools = REGISTRY.schemas()
         llm_start = time.time()
         llm_span = tracer.start_span("llm_call", {"turn": turn, "provider": provider, "model": model})
         try:
-            response = chat(messages, tools, stream=stream, stream_callback=stream_callback)
+            response = chat(active_messages, tools, stream=stream, stream_callback=stream_callback)
             llm_latency_ms = (time.time() - llm_start) * 1000
             usage = response.get("usage", {})
             input_tokens = usage.get("prompt_tokens", 0) or usage.get("input_tokens", 0)
