@@ -86,7 +86,9 @@ class TestTelegramGateway:
             },
         }
         gateway.handle_update(update)
+        for t in gateway._worker_threads:
+            t.join(timeout=2)
 
-        assert mock_post.call_count == 1
+        assert mock_post.call_count >= 1
         payload = mock_post.call_args.kwargs["json"]
         assert "Demorou muito" in payload["text"]

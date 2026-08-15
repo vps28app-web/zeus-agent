@@ -104,13 +104,22 @@ def run_agent(
     max_turns: int = 20,
     stream: bool = False,
     stream_callback=None,
+    tool_callback=None,
 ) -> str:
     metrics = get_metrics(session_id)
     tracer = get_tracer(session_id)
     tracer.start_span("run_agent", {"user_input": user_input})
 
+    from zeus.memory.store import MemoryStore
+    mem_store = MemoryStore()
+    mem_context = mem_store.get_summary_context()
+
+    system_prompt = SYSTEM_PROMPT
+    if mem_context:
+        system_prompt += f"\n\n## Persistent User Profile & Knowledge\n{mem_context}\n"
+
     messages: List[Dict[str, Any]] = [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_input},
     ]
 
@@ -152,6 +161,9 @@ def run_agent(
         messages.append(assistant_message)
 
         for call in calls:
+            if tool_callback:
+                fn_info = call.get("function", {})
+                tool_callback(fn_info.get("name"), fn_info.get("arguments"))
             result = execute_tool_call(call, metrics, tracer)
             messages.append(
                 {

@@ -55,6 +55,18 @@ class MemoryRepository:
         finally:
             conn.close()
 
+    def search(self, query: str) -> List[Dict[str, str]]:
+        conn = get_connection(self.db_path)
+        try:
+            pattern = f"%{query}%"
+            rows = conn.execute(
+                "SELECT key, note FROM memories WHERE key LIKE ? OR note LIKE ? ORDER BY id",
+                (pattern, pattern),
+            ).fetchall()
+            return [{"key": row["key"], "note": row["note"]} for row in rows]
+        finally:
+            conn.close()
+
 
 class SessionRepository:
     def __init__(self, db_path: Optional[Path] = None):

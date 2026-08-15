@@ -1,11 +1,14 @@
 """Interactive CLI for Zeus."""
 
 import argparse
+import json
 import os
+import shutil
 import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import Any, Optional
 
 from dotenv import load_dotenv
 from prompt_toolkit import PromptSession
@@ -90,7 +93,7 @@ def _print_banner(logger, metrics) -> None:
         f"  {_color('Comandos:', 90)} /new  /reset  /clear  /models  /summary  /help  /exit",
     ]
 
-    inner_width = 72
+    inner_width = max(60, min(_get_term_width() - 4, 120))
     top = _color('╔' + '═' * inner_width + '╗', 90)
     bottom = _color('╚' + '═' * inner_width + '╝', 90)
 
@@ -114,7 +117,46 @@ def _print_banner(logger, metrics) -> None:
     print("\n".join(lines))
 
 
+def _get_term_width() -> int:
+    cols = shutil.get_terminal_size(fallback=(80, 24)).columns
+    return max(40, min(cols, 160))
+
+
+def _print_agent_response(response: str, title: str = "ZEUS", model: str = "") -> None:
+    """Print the AI response wrapped in an open-ended left-bordered card dynamic to terminal width."""
+    term_width = _get_term_width()
+    model_name = os.getenv("ZEUS_MODEL", model or "agent")
+    header_title = f" 🤖 {title} ({model_name}) "
+    line_length = max(10, term_width - len(header_title) - 6)
+
+    top = _color("╭──", 36) + _color(header_title, "1;36") + _color("─" * line_length, 36)
+    bottom = _color("╰" + "─" * (term_width - 3), 36)
+
+    print()
+    print(top)
+    for line in response.splitlines():
+        print(f"{_color('│', 36)} {line}")
+    print(bottom)
+    print()
+
+
+def _print_user_closing() -> None:
+    """Close the user input box visually adapting to terminal width."""
+    term_width = _get_term_width()
+    print(_color("╰" + "─" * (term_width - 3), 33))
+
+
+def _print_tool_execution(name: Optional[str], args: Any) -> None:
+    """Print a notification when the agent executes a tool."""
+    args_str = json.dumps(args) if isinstance(args, (dict, list)) else str(args or {})
+    if len(args_str) > 65:
+        args_str = args_str[:62] + "..."
+    tool_name = name or "ferramenta"
+    print(f"  {_color('⚡ Executando:', 35)} {_color(tool_name, '1;35')}({_color(args_str, 90)})")
+
+
 def _build_prompt(logger, metrics) -> str:
+    term_width = _get_term_width()
     model = os.getenv("ZEUS_MODEL", "unknown")
     snap = metrics.snapshot()
     in_tokens = snap.get("llm_input_tokens", 0)
@@ -122,14 +164,13 @@ def _build_prompt(logger, metrics) -> str:
     duration = _format_duration(time.time() - snap.get("started_at", time.time()))
     session_short = logger.session_id[:8]
 
-    bar = "\u00bb"  # » (seta dupla)
-    return (
-        f"{_color('Zeus', 36)} - {_color(model, 33)} "
-        f"| {_color('in', 90)}:{_color(str(in_tokens), 32)} {_color('out', 90)}:{_color(str(out_tokens), 31)} "
-        f"| {_color(duration, 35)} "
-        f"| {_color(session_short, 90)}\n"
-        f"{_color(bar, 90)} "
-    )
+    title = f" 👤 VOCÊ | {model} | in:{in_tokens} out:{out_tokens} | {duration} | {session_short} "
+    remaining = max(5, term_width - len(title) - 6)
+
+    top = _color("╭──", 33) + _color(title, "1;33") + _color("─" * remaining, 33)
+    prompt_arrow = _color("│ ❯ ", "1;33")
+
+    return f"\n{top}\n{prompt_arrow}"
 
 
 def main() -> None:
@@ -162,11 +203,11 @@ def main() -> None:
             team = create_default_team(session_id=logger.session_id)
             response = team.run(args.query)
         else:
-            response = run_agent(args.query, session_id=logger.session_id)
+            response = run_agent(args.query, session_id=logger.session_id, tool_callback=_print_tool_execution)
         logger.log_turn("assistant", response)
-        print(response)
+        _print_agent_response(response)
         if args.summary:
-            print("\n--- Session summary ---")
+            print("\n--- Resumo da sessão ---")
             print(run_summary(session_id=logger.session_id))
         return
 
@@ -190,17 +231,15 @@ def main() -> None:
         if text == "/new":
             logger = get_logger(new_session=True)
             metrics = get_metrics(logger.session_id)
-            print(f"Nova sessão: {logger.session_id}\n")
+            print(f"\n{_color('✨ Nova sessão criada:', 32)} {logger.session_id}\n")
             continue
         if text == "/reset":
-            # Preserve session ID but reset metrics and re-log system context
             old_session = logger.session_id
             logger = get_logger(old_session)
             metrics = get_metrics(old_session)
-            print(f"Sessão resetada: {logger.session_id}\n")
+            print(f"\n{_color('🔄 Sessão resetada:', 33)} {logger.session_id}\n")
             continue
         if text == "/clear":
-            # clear/cls is a fixed, user-invoked terminal command with no external input.
             subprocess.run(["clear"] if os.name != "nt" else ["cls"], check=False)
             _print_banner(logger, metrics)
             continue
@@ -208,7 +247,7 @@ def main() -> None:
             print(run_summary(session_id=logger.session_id))
             continue
         if text in ("/help", "/?"):
-            print("Comandos disponíveis:")
+            print("\nComandos disponíveis:")
             print("  /new      - Cria uma nova sessão (novo ID)")
             print("  /reset    - Reseta a sessão atual (mantém ID, zera métricas)")
             print("  /clear    - Limpa a tela")
@@ -217,7 +256,7 @@ def main() -> None:
             print("  /sair     - Encerra o Zeus")
             print("  /exit, /quit - Alias para /sair")
             print("  /help     - Mostra esta ajuda")
-            print("  /team <tarefa> - Executa com equipe multi-agente")
+            print("  /team <tarefa> - Executa com equipe multi-agente\n")
             continue
 
         if text == "/models":
@@ -231,24 +270,26 @@ def main() -> None:
                 print("Uso: /team <tarefa>")
                 continue
             logger.log_turn("user", text)
+            _print_user_closing()
             try:
                 team = create_default_team(session_id=logger.session_id)
                 response = team.run(task)
                 logger.log_turn("assistant", response)
-                print(response)
+                _print_agent_response(response, title="Equipe Multi-Agente")
             except Exception as e:
                 logger.log_turn("error", str(e))
-                print(f"Erro: {e}", file=sys.stderr)
+                print(f"\n{_color('❌ Erro:', '1;31')} {e}\n", file=sys.stderr)
             continue
 
         logger.log_turn("user", text)
+        _print_user_closing()
         try:
-            response = run_agent(text, session_id=logger.session_id)
+            response = run_agent(text, session_id=logger.session_id, tool_callback=_print_tool_execution)
             logger.log_turn("assistant", response)
-            print(response)
+            _print_agent_response(response)
         except Exception as e:
             logger.log_turn("error", str(e))
-            print(f"Erro: {e}", file=sys.stderr)
+            print(f"\n{_color('❌ Erro:', '1;31')} {e}\n", file=sys.stderr)
 
     print(f"Session log: {logger.log_path}")
     print(run_summary(session_id=logger.session_id))

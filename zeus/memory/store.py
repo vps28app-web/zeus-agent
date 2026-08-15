@@ -19,13 +19,13 @@ class MemoryStore:
     def __init__(self, path: Optional[Path] = None):
         self.json_path = path or _memory_path()
         self.use_sqlite = os.getenv("ZEUS_USE_SQLITE", "true").lower() in ("1", "true", "yes")
+        self._data: Dict[str, List[str]] = self._load()
         if self.use_sqlite:
             from zeus.db.connection import init_db
             init_db()
             self._repo: Optional[MemoryRepository] = MemoryRepository()
         else:
             self._repo = None
-            self._data: Dict[str, List[str]] = self._load()
 
     def _load(self) -> Dict[str, List[str]]:
         if not self.json_path.exists():
@@ -67,3 +67,24 @@ class MemoryStore:
             else:
                 self._data = {}
             self._save()
+
+    def search(self, query: str) -> List[Dict[str, str]]:
+        if self.use_sqlite and self._repo:
+            return self._repo.search(query)
+        q = query.lower()
+        results = []
+        for k, notes in self._data.items():
+            for note in notes:
+                if q in k.lower() or q in note.lower():
+                    results.append({"key": k, "note": note})
+        return results
+
+    def get_summary_context(self) -> str:
+        """Return key notes to automatically inject into system prompt context."""
+        keys_to_check = ["user_profile", "user_preferences", "rules", "general"]
+        lines = []
+        for k in keys_to_check:
+            notes = self.get(k)
+            if notes:
+                lines.append(f"- **{k}**: " + "; ".join(notes))
+        return "\n".join(lines) if lines else ""
