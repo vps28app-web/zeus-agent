@@ -38,9 +38,35 @@ def test_prune_messages_triggers_pruning():
         messages.append({"role": "assistant", "content": f"Assistant answer {i}"})
 
     pruned = prune_messages(messages, max_messages=10, keep_recent=4)
-    
+
     # System prompt + Summary message + 4 recent messages = 6 total
     assert len(pruned) == 6
     assert pruned[0]["role"] == "system"
     assert "Earlier Conversation Summary" in pruned[1]["content"]
     assert pruned[-1]["content"] == "Assistant answer 14"
+
+
+def test_prune_messages_truncates_long_tool_output():
+    long_output = "x" * 10000
+    messages = [
+        {"role": "system", "content": "System"},
+        {"role": "user", "content": "Run"},
+        {"role": "tool", "name": "terminal", "content": long_output},
+    ]
+    pruned = prune_messages(messages, max_messages=10, max_tokens=100000)
+    tool_msg = pruned[-1]
+    assert tool_msg["role"] == "tool"
+    assert len(tool_msg["content"]) < len(long_output)
+    assert "truncated" in tool_msg["content"]
+
+
+def test_prune_messages_recursive_on_token_limit():
+    messages = [{"role": "system", "content": "System prompt"}]
+    for i in range(30):
+        messages.append({"role": "user", "content": "User " + "word " * 50})
+        messages.append({"role": "assistant", "content": "Assistant " + "word " * 50})
+
+    pruned = prune_messages(messages, max_messages=100, max_tokens=700, keep_recent=2)
+    total = sum(estimate_tokens(m.get("content", "")) for m in pruned)
+    assert total <= 700
+    assert pruned[0]["role"] == "system"
