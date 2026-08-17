@@ -5,12 +5,14 @@ Uses discord.py to listen to direct messages and guild mentions.
 
 import asyncio
 import os
-from typing import List, Optional, Set
+from typing import Dict, List, Optional, Set
 
 import discord
 
 from zeus.core.agent import run_agent
+from zeus.gateway.confirmations import ConfirmationManager
 from zeus.memory.session_log import get_logger
+from zeus.tools.file import set_file_permission_callback
 
 
 class DiscordClient(discord.Client):
@@ -26,6 +28,15 @@ class DiscordClient(discord.Client):
         super().__init__(intents=intents, **kwargs)
         self.allowed_user_ids = allowed_user_ids or set()
         self.allowed_channel_ids = allowed_channel_ids or set()
+        self._confirmations = ConfirmationManager()
+        self._pending_inputs: Dict[str, str] = {}
+        self._setup_permissions()
+
+    def _setup_permissions(self) -> None:
+        """Configure file permission callback for this gateway."""
+        def callback(_message: str) -> bool:
+            return False
+        set_file_permission_callback(callback)
 
     async def on_ready(self) -> None:
         print(f"Discord gateway logged in as {self.user}")
@@ -62,9 +73,19 @@ class DiscordClient(discord.Client):
             print(f"Ignoring message from unauthorized channel: {channel_id}")
             return
 
+        platform_user_id = str(user_id)
+
+        # Handle pending file permission confirmations.
+        if self._confirmations.answer("discord", platform_user_id, text):
+            return
+
+        # Handle pending input resumption.
+        if platform_user_id in self._pending_inputs:
+            original_input = self._pending_inputs.pop(platform_user_id)
+            text = f"{original_input}\n\nConfirmação do usuário: {text}"
+
         print(f"Discord message from {message.author} ({user_id}): {text[:80]}")
         session_id = f"discord-{user_id}-{channel_id}"
-        platform_user_id = str(user_id)
         logger = get_logger(session_id)
         logger.log_turn(
             "user",
@@ -84,6 +105,22 @@ class DiscordClient(discord.Client):
                 user_id=platform_user_id,
                 platform="discord",
             )
+
+            if "Write denied by user" in response or "Delete denied by user" in response:
+                parts = response.replace("Write denied by user for ", "").replace("Delete denied by user for ", "").strip()
+                action = "write" if "Write denied" in response else "delete"
+                self._confirmations.request(
+                    "discord",
+                    platform_user_id,
+                    action,
+                    parts,
+                    on_response=lambda choice, original=text, channel=message.channel, sid=logger.session_id, uid=platform_user_id: (
+                        asyncio.create_task(self._resume_after_confirmation(original, choice, channel, sid, uid))
+                    ),
+                )
+                await self._send_chunks(message.channel, self._confirmations.format_question(action, parts))
+                return
+
             logger.log_turn(
                 "assistant",
                 response,
@@ -94,6 +131,29 @@ class DiscordClient(discord.Client):
             logger.log_turn("error", str(e), metadata={"platform": "discord"})
             print(f"Error handling Discord message: {e}")
             await message.channel.send(f"Erro: {e}")
+
+    async def _resume_after_confirmation(
+        self,
+        original_input: str,
+        choice: str,
+        channel: discord.abc.Messageable,
+        logger_session_id: str,
+        user_id: str,
+    ) -> None:
+        if choice == "deny":
+            await channel.send("Ação negada pelo usuário.")
+            return
+
+        if choice == "once":
+            instruction = f"{original_input}\n\n[O usuário permitiu a ação de arquivo desta vez.]"
+        elif choice == "always":
+            instruction = f"{original_input}\n\n[O usuário permitiu a ação de arquivo para esta sessão.]"
+        elif choice == "persist":
+            instruction = f"{original_input}\n\n[O usuário permitiu a ação de arquivo permanentemente.]"
+        else:
+            instruction = original_input
+
+        self._pending_inputs[user_id] = instruction
 
     async def _send_chunks(self, channel: discord.abc.Messageable, text: str) -> None:
         chunks = self._chunk_text(text)

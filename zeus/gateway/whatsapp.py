@@ -11,7 +11,9 @@ from typing import Any, Dict, List, Optional, Set
 import requests
 
 from zeus.core.agent import run_agent
+from zeus.gateway.confirmations import ConfirmationManager
 from zeus.memory.session_log import get_logger
+from zeus.tools.file import set_file_permission_callback
 
 
 class WhatsAppGateway:
@@ -29,6 +31,15 @@ class WhatsAppGateway:
         self.poll_interval = poll_interval
         self.timeout = timeout
         self.running = False
+        self._confirmations = ConfirmationManager()
+        self._pending_inputs: Dict[str, str] = {}
+        self._setup_permissions()
+
+    def _setup_permissions(self) -> None:
+        """Configure file permission callback for this gateway."""
+        def callback(_message: str) -> bool:
+            return False
+        set_file_permission_callback(callback)
 
     def _get(self, path: str) -> Dict[str, Any]:
         response = requests.get(f"{self.base_url}{path}", timeout=self.timeout)
@@ -95,9 +106,19 @@ class WhatsAppGateway:
             print(f"WhatsApp not connected ({connection}); skipping message from {from_jid}")
             return
 
+        user_id = from_jid
+
+        # Handle pending file permission confirmations.
+        if self._confirmations.answer("whatsapp", user_id, text):
+            return
+
+        # Handle pending input resumption.
+        if user_id in self._pending_inputs:
+            original_input = self._pending_inputs.pop(user_id)
+            text = f"{original_input}\n\nConfirmação do usuário: {text}"
+
         print(f"WhatsApp message from {from_jid}: {text[:80]}")
         session_id = f"whatsapp-{from_jid.replace('@', '-')}"
-        user_id = from_jid
         logger = get_logger(session_id)
         logger.log_turn(
             "user",
@@ -112,6 +133,22 @@ class WhatsAppGateway:
                 user_id=user_id,
                 platform="whatsapp",
             )
+
+            if "Write denied by user" in response or "Delete denied by user" in response:
+                parts = response.replace("Write denied by user for ", "").replace("Delete denied by user for ", "").strip()
+                action = "write" if "Write denied" in response else "delete"
+                self._confirmations.request(
+                    "whatsapp",
+                    user_id,
+                    action,
+                    parts,
+                    on_response=lambda choice, original=text, target=from_jid, sid=logger.session_id: (
+                        self._resume_after_confirmation(original, choice, target, sid, user_id)
+                    ),
+                )
+                self.send_message(from_jid, self._confirmations.format_question(action, parts))
+                return
+
             logger.log_turn(
                 "assistant",
                 response,
@@ -122,6 +159,29 @@ class WhatsAppGateway:
             logger.log_turn("error", str(e), metadata={"from": from_jid})
             print(f"Error handling message: {e}")
             self.send_message(from_jid, f"Erro: {e}")
+
+    def _resume_after_confirmation(
+        self,
+        original_input: str,
+        choice: str,
+        target: str,
+        logger_session_id: str,
+        user_id: str,
+    ) -> None:
+        if choice == "deny":
+            self.send_message(target, "Ação negada pelo usuário.")
+            return
+
+        if choice == "once":
+            instruction = f"{original_input}\n\n[O usuário permitiu a ação de arquivo desta vez.]"
+        elif choice == "always":
+            instruction = f"{original_input}\n\n[O usuário permitiu a ação de arquivo para esta sessão.]"
+        elif choice == "persist":
+            instruction = f"{original_input}\n\n[O usuário permitiu a ação de arquivo permanentemente.]"
+        else:
+            instruction = original_input
+
+        self._pending_inputs[user_id] = instruction
 
     def run(self) -> None:
         self.running = True

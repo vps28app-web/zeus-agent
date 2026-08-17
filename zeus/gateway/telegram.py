@@ -13,7 +13,10 @@ from typing import Any, Dict, List, Optional, Set
 import requests
 
 from zeus.core.agent import run_agent
+from zeus.gateway.confirmations import ConfirmationManager
 from zeus.memory.session_log import get_logger
+from zeus.security.permissions import PermissionManager
+from zeus.tools.file import set_file_permission_callback
 
 
 DEFAULT_AGENT_TIMEOUT = float(os.getenv("ZEUS_GATEWAY_AGENT_TIMEOUT", "120"))
@@ -72,6 +75,16 @@ class TelegramGateway:
         self.offset: Optional[int] = None
         self.running = False
         self._worker_threads: List[threading.Thread] = []
+        self._confirmations = ConfirmationManager()
+        self._pending_inputs: Dict[str, str] = {}
+        self._setup_permissions()
+
+    def _setup_permissions(self) -> None:
+        """Configure file permission callback for this gateway."""
+        def callback(_message: str) -> bool:
+            # Synchronous denial: the gateway will ask via a follow-up message.
+            return False
+        set_file_permission_callback(callback)
 
     def api_url(self, method: str) -> str:
         return f"{self.base_url}/bot{self.token}/{method}"
@@ -170,6 +183,15 @@ class TelegramGateway:
 
         user_id = str(chat_id)
 
+        # Handle pending file permission confirmations.
+        if self._confirmations.answer("telegram", user_id, text):
+            return
+
+        # Handle pending input resumption.
+        if user_id in self._pending_inputs:
+            original_input = self._pending_inputs.pop(user_id)
+            text = f"{original_input}\n\nConfirmação do usuário: {text}"
+
         def worker():
             logger = get_logger(f"telegram-{chat_id}-{message_id}")
             logger.log_turn(
@@ -193,6 +215,24 @@ class TelegramGateway:
                     user_id=user_id,
                     platform="telegram",
                 )
+
+                # Check if a file permission confirmation was triggered.
+                if "Write denied by user" in response or "Delete denied by user" in response:
+                    # Extract action and path from the denial message.
+                    parts = response.replace("Write denied by user for ", "").replace("Delete denied by user for ", "").strip()
+                    action = "write" if "Write denied" in response else "delete"
+                    self._confirmations.request(
+                        "telegram",
+                        user_id,
+                        action,
+                        parts,
+                        on_response=lambda choice, original=text, cid=chat_id, mid=message_id, sid=logger.session_id: (
+                            self._resume_after_confirmation(original, choice, cid, mid, sid, user_id)
+                        ),
+                    )
+                    self.send_message(chat_id, self._confirmations.format_question(action, parts), reply_to_message_id=message_id)
+                    return
+
                 logger.log_turn(
                     "assistant",
                     response,
@@ -215,6 +255,32 @@ class TelegramGateway:
         t.start()
         self._worker_threads.append(t)
         self._worker_threads = [t for t in self._worker_threads if t.is_alive()]
+
+    def _resume_after_confirmation(
+        self,
+        original_input: str,
+        choice: str,
+        chat_id: int,
+        message_id: int,
+        logger_session_id: str,
+        user_id: str,
+    ) -> None:
+        """Resume agent execution after user confirms/denies a file action."""
+        if choice == "deny":
+            self.send_message(chat_id, "Ação negada pelo usuário.", reply_to_message_id=message_id)
+            return
+
+        # Build instruction based on choice.
+        if choice == "once":
+            instruction = f"{original_input}\n\n[O usuário permitiu a ação de arquivo desta vez.]"
+        elif choice == "always":
+            instruction = f"{original_input}\n\n[O usuário permitiu a ação de arquivo para esta sessão.]"
+        elif choice == "persist":
+            instruction = f"{original_input}\n\n[O usuário permitiu a ação de arquivo permanentemente.]"
+        else:
+            instruction = original_input
+
+        self._pending_inputs[user_id] = instruction
 
     def run(self) -> None:
         """Start polling loop."""
