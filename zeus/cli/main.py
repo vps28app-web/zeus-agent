@@ -23,6 +23,19 @@ from zeus.observability import get_metrics
 from zeus.tools import terminal, file, web, memory_tools, sandbox_client, sandbox, git, code_execution, browser, database, scheduler, user_profile_tools  # noqa: F401
 
 
+def _ask_file_permission(message: str) -> Any:
+    """Interactive confirmation for file write/delete actions."""
+    from prompt_toolkit.formatted_text import ANSI
+
+    print()
+    print(message)
+    try:
+        answer = session.prompt(ANSI(f"{_color('❓', 33)} Escolha (y/a/p/n): "))
+    except (EOFError, KeyboardInterrupt):
+        return False
+    return answer.strip().lower()
+
+
 def _load_env() -> None:
     """Load .env from ~/.zeus/.env or the project root if present."""
     zeus_home = Path(os.getenv("ZEUS_HOME", os.path.expanduser("~/.zeus")))
@@ -241,6 +254,10 @@ def main() -> None:
 
     logger = get_logger(args.session)
     metrics = get_metrics(logger.session_id)
+
+    # Connect interactive file permission callback.
+    from zeus.tools.file import set_file_permission_callback
+    set_file_permission_callback(_ask_file_permission)
 
     if args.query:
         logger.log_turn("user", args.query)
