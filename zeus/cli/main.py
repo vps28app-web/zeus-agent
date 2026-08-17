@@ -8,7 +8,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
 from prompt_toolkit import PromptSession
@@ -16,6 +16,7 @@ from prompt_toolkit.history import FileHistory
 from prompt_toolkit.formatted_text import ANSI
 
 from zeus.core.agent import run_agent, run_summary
+from zeus.core.planner import generate_plan, execute_plan_step
 from zeus.core.team import create_default_team, Team, Worker
 from zeus.memory.session_log import get_logger
 from zeus.observability import get_metrics
@@ -43,7 +44,7 @@ def _format_duration(seconds: float) -> str:
     return f"{hours}h{minutes:02d}m"
 
 
-def _color(text: str, code: int) -> str:
+def _color(text: str, code: Any) -> str:
     return f"\033[{code}m{text}\033[0m"
 
 
@@ -138,6 +139,50 @@ def _print_agent_response(response: str, title: str = "ZEUS", model: str = "") -
         print(f"{_color('│', 36)} {line}")
     print(bottom)
     print()
+
+
+def _print_plan(plan: Dict[str, Any]) -> None:
+    """Print a structured plan card."""
+    term_width = _get_term_width()
+    title = f" 📋 PLANO: {plan.get('title', 'Sem título')} "
+    line_length = max(10, term_width - len(title) - 6)
+    top = _color("╭──", 34) + _color(title, "1;34") + _color("─" * line_length, 34)
+    bottom = _color("╰" + "─" * (term_width - 3), 34)
+
+    print()
+    print(top)
+    for step in plan.get("steps", []):
+        num = step.get("step", "?")
+        action = step.get("action", "")
+        hint = step.get("tool_hint", "any")
+        print(f"{_color('│', 34)}  {num}. {action} {_color(f'[{hint}]', 90)}")
+    print(bottom)
+    print()
+
+
+def _print_step_result(step: Dict[str, Any], total: int) -> None:
+    """Print the result of a single plan step."""
+    term_width = _get_term_width()
+    title = f" ✅ Passo {step['step']}/{total}: {step['action'][:40]} "
+    line_length = max(10, term_width - len(title) - 6)
+    top = _color("╭──", 32) + _color(title, "1;32") + _color("─" * line_length, 32)
+    bottom = _color("╰" + "─" * (term_width - 3), 32)
+
+    print()
+    print(top)
+    for line in str(step.get("result", "")).splitlines():
+        print(f"{_color('│', 32)} {line}")
+    print(bottom)
+    print()
+
+
+def _ask_confirmation(session: PromptSession, text: str) -> bool:
+    """Ask the user for y/n confirmation."""
+    try:
+        answer = session.prompt(ANSI(f"\n{_color('❓', 33)} {text} (s/n): "))
+    except (EOFError, KeyboardInterrupt):
+        return False
+    return answer.strip().lower() in ("s", "sim", "y", "yes")
 
 
 def _print_user_closing() -> None:
@@ -253,10 +298,11 @@ def main() -> None:
             print("  /clear    - Limpa a tela")
             print("  /summary  - Mostra resumo da sessão")
             print("  /models   - Troca o modelo/provedor LLM")
+            print("  /plan <tarefa> - Cria e executa um plano passo a passo")
+            print("  /team <tarefa> - Executa com equipe multi-agente")
             print("  /sair     - Encerra o Zeus")
             print("  /exit, /quit - Alias para /sair")
-            print("  /help     - Mostra esta ajuda")
-            print("  /team <tarefa> - Executa com equipe multi-agente\n")
+            print("  /help     - Mostra esta ajuda\n")
             continue
 
         if text == "/models":
@@ -276,6 +322,41 @@ def main() -> None:
                 response = team.run(task)
                 logger.log_turn("assistant", response)
                 _print_agent_response(response, title="Equipe Multi-Agente")
+            except Exception as e:
+                logger.log_turn("error", str(e))
+                print(f"\n{_color('❌ Erro:', '1;31')} {e}\n", file=sys.stderr)
+            continue
+
+        if text.startswith("/plan "):
+            task = text[len("/plan "):].strip()
+            if not task:
+                print("Uso: /plan <tarefa>")
+                continue
+            logger.log_turn("user", text)
+            _print_user_closing()
+            try:
+                plan = generate_plan(task)
+                _print_plan(plan)
+                if _ask_confirmation(session, "Executar este plano?"):
+                    results: List[Dict[str, Any]] = []
+                    steps = plan.get("steps", [])
+                    for step in steps:
+                        result = execute_plan_step(
+                            step,
+                            original_request=task,
+                            previous_results=results,
+                            session_id=logger.session_id,
+                        )
+                        results.append(result)
+                        _print_step_result(result, len(steps))
+                    summary = "\n\n".join(
+                        f"Passo {r['step']}: {r['action']}\n{r['result']}"
+                        for r in results
+                    )
+                    logger.log_turn("assistant", summary)
+                    _print_agent_response(summary, title="RESULTADO DO PLANO")
+                else:
+                    print(f"\n{_color('Plano cancelado.', 33)}\n")
             except Exception as e:
                 logger.log_turn("error", str(e))
                 print(f"\n{_color('❌ Erro:', '1;31')} {e}\n", file=sys.stderr)
