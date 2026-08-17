@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 
 from zeus.core.registry import REGISTRY
 from zeus.core.router import chat
+from zeus.core.schemas import AgentDecision
 from zeus.observability import get_metrics, get_tracer, report_summary
 
 
@@ -14,36 +15,90 @@ SYSTEM_PROMPT = """You are Zeus, an autonomous agent harness that solves tasks b
 
 Your operating model is ReAct: think, act, observe, repeat until the task is done.
 
+## Critical Output Rule
+
+You MUST respond with a single valid JSON object matching this exact schema:
+{
+  "reasoning": "brief internal reasoning",
+  "response": "your direct answer to the user (null if calling tools)",
+  "tool_calls": [
+    {"name": "tool_name", "arguments": {"key": "value"}}
+  ]
+}
+
+- If you need to use a tool, set `response` to null and provide one or more `tool_calls`.
+- If you are done, set `tool_calls` to [] and provide a natural-language `response`.
+- Never include markdown, explanation or any text outside the JSON object.
+
 ## Rules
 
 1. **Use tools for facts and actions.** Never invent filesystem contents, command outputs, URLs, or search results. Always call a tool to verify the real state.
-2. **Plan before acting.** For multi-step tasks, briefly state your plan, then execute one step at a time.
+2. **Plan before acting.** For multi-step tasks, briefly state your plan in `reasoning`, then execute one step at a time.
 3. **Use the right tool for the job.** Prefer:
    - `run_sandboxed`, `execute_python`, `execute_shell_script` for risky or unknown code.
    - `run_terminal` only when you need host access or trust the command.
    - `git_*` tools for repository operations.
    - `browser_*` tools for interactive web pages; `web_search`/`web_extract` for quick lookup.
 4. **One tool call per reasoning step is usually enough.** Wait for the result before deciding the next step.
-5. **Be concise.** Explain why you are calling a tool, then summarize the result.
+5. **Be concise.** Explain why you are calling a tool in `reasoning`, then summarize the result.
 6. **Cite outputs.** When giving a final answer, reference the tool outputs that support it.
 7. **Stop when done.** If you have a final answer, do not call more tools.
-
-## Output format
-
-When calling a tool, respond with a short sentence explaining the action.
-When giving the final answer, be direct and cite relevant outputs.
-
-## Examples
-
-User: "Quantos arquivos Python tem no projeto Zeus?"
-Assistant: "Vou listar os arquivos Python no diretório do projeto." [calls list_directory/search_files]
-
-User: "Execute Python para calcular a média de [1,2,3,4,5]."
-Assistant: "Vou executar o cálculo de forma isolada na sandbox." [calls execute_python]
-
-User: "Qual a última versão do Django?"
-Assistant: "Vou pesquisar a última versão do Django." [calls web_search]
 """
+
+
+def _parse_decision(content: Optional[str]) -> AgentDecision:
+    """Parse the LLM response into a structured AgentDecision."""
+    if not content:
+        return AgentDecision(reasoning="empty response", response="No response.")
+
+    text = content.strip()
+    if text.startswith("```"):
+        text = text.split("\n", 1)[1].rsplit("\n", 1)[0]
+        text = text.removeprefix("json").strip()
+
+    try:
+        return AgentDecision.model_validate_json(text)
+    except Exception as e:
+        start = text.find("{")
+        end = text.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            try:
+                return AgentDecision.model_validate_json(text[start : end + 1])
+            except Exception:
+                pass
+        return AgentDecision(
+            reasoning=f"failed to parse model response: {e}",
+            response=text,
+        )
+
+
+def _tool_calls_from_decision(decision: AgentDecision) -> List[Dict[str, Any]]:
+    """Convert AgentDecision tool_calls to OpenAI-like tool_calls format."""
+    calls = []
+    for i, call in enumerate(decision.tool_calls):
+        calls.append({
+            "id": f"call_{i}",
+            "type": "function",
+            "function": {
+                "name": call.name,
+                "arguments": json.dumps(call.arguments),
+            },
+        })
+    return calls
+
+
+def normalize_tool_calls(response: Dict[str, Any]) -> tuple[Optional[AgentDecision], Optional[str]]:
+    """Extract structured decision and raw content from LLM response."""
+    message = response.get("choices", [{}])[0].get("message", {})
+    content: Optional[str] = message.get("content")
+
+    # If model used native tool_calls, return them directly.
+    native_calls = message.get("tool_calls")
+    if native_calls:
+        return None, content
+
+    decision = _parse_decision(content)
+    return decision, content
 
 
 def execute_tool_call(call: Dict[str, Any], metrics, tracer) -> Dict[str, Any]:
@@ -75,27 +130,6 @@ def execute_tool_call(call: Dict[str, Any], metrics, tracer) -> Dict[str, Any]:
         metrics.record_tool_call(name, latency_ms, error=True, result_summary=str(e))
         span.finish(status="error", attributes={"latency_ms": latency_ms, "error": str(e)})
         return {"tool": name, "error": str(e), "traceback": traceback.format_exc()}
-
-
-def normalize_tool_calls(response: Dict[str, Any]) -> tuple[List[Dict[str, Any]], Optional[str]]:
-    message = response.get("choices", [{}])[0].get("message", {})
-    calls: List[Dict[str, Any]] = message.get("tool_calls") or []
-    content: Optional[str] = message.get("content")
-
-    # Handle Ollama tool_calls format
-    if calls and isinstance(calls[0], dict) and "function" not in calls[0]:
-        calls = [
-            {
-                "id": f"call_{i}",
-                "function": {
-                    "name": c.get("function", {}).get("name") or c.get("name"),
-                    "arguments": json.dumps(c.get("function", {}).get("arguments") or c.get("arguments", {})),
-                },
-            }
-            for i, c in enumerate(calls)
-        ]
-
-    return calls, content
 
 
 def run_agent(
@@ -164,16 +198,44 @@ def run_agent(
             tracer.finish_span(status="error")
             return f"LLM error: {e}"
 
-        calls, content = normalize_tool_calls(response)
+        decision, content = normalize_tool_calls(response)
 
-        if content:
-            messages.append({"role": "assistant", "content": content})
+        # Handle native tool_calls path.
+        if decision is None:
+            native_calls = response.get("choices", [{}])[0].get("message", {}).get("tool_calls") or []
+            if not native_calls:
+                tracer.finish_span(status="ok")
+                return content or "No response."
+            assistant_message = {"role": "assistant", "content": content or "", "tool_calls": native_calls}
+            messages.append(assistant_message)
+            for call in native_calls:
+                if tool_callback:
+                    fn_info = call.get("function", {})
+                    tool_callback(fn_info.get("name"), fn_info.get("arguments"))
+                result = execute_tool_call(call, metrics, tracer)
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": call.get("id", "call_0"),
+                        "name": call.get("function", {}).get("name"),
+                        "content": json.dumps(result),
+                    }
+                )
+            continue
 
+        # Structured JSON path.
+        messages.append({"role": "assistant", "content": content or ""})
+
+        if decision.response and not decision.tool_calls:
+            tracer.finish_span(status="ok")
+            return decision.response
+
+        calls = _tool_calls_from_decision(decision)
         if not calls:
             tracer.finish_span(status="ok")
-            return content or "No response."
+            return decision.response or "No response."
 
-        assistant_message: Dict[str, Any] = {"role": "assistant", "content": content or "", "tool_calls": calls}
+        assistant_message = {"role": "assistant", "content": content or "", "tool_calls": calls}
         messages.append(assistant_message)
 
         for call in calls:

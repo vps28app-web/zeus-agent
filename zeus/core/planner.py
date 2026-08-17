@@ -5,30 +5,49 @@ import os
 from typing import Any, Dict, List, Optional
 
 from zeus.core.router import chat
-from zeus.core.registry import REGISTRY
+from zeus.core.schemas import PlanOutput, PlanStep
 
 
 PLAN_SYSTEM_PROMPT = """You are Zeus in planning mode.
 
-Given a user request, produce a concise step-by-step plan. Each step must be:
-- Actionable by an agent that has access to terminal, file, web, code, git and memory tools.
-- Short (one sentence).
-- Numbered.
+Given a user request, produce a concise step-by-step plan.
 
-Respond ONLY with a JSON object in this exact format:
+You MUST respond with a single valid JSON object matching this exact schema:
 {
   "title": "short plan title",
   "steps": [
-    {"step": 1, "action": "describe what to do", "tool_hint": "optional tool name or 'any'"},
-    ...
-  ],
-  "estimated_steps": 3
+    {"step": 1, "action": "describe what to do", "tool_hint": "optional tool name or 'any'"}
+  ]
 }
 
-Do not add markdown, explanation or commentary outside the JSON."""
+Do not add markdown, explanation or any text outside the JSON object."""
 
 
-def generate_plan(request: str, provider: Optional[str] = None, model: Optional[str] = None) -> Dict[str, Any]:
+def _parse_plan(content: str) -> PlanOutput:
+    """Parse LLM response into a structured PlanOutput."""
+    text = content.strip()
+    if text.startswith("```"):
+        text = text.split("\n", 1)[1].rsplit("\n", 1)[0]
+        text = text.removeprefix("json").strip()
+
+    try:
+        return PlanOutput.model_validate_json(text)
+    except Exception:
+        start = text.find("{")
+        end = text.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            try:
+                return PlanOutput.model_validate_json(text[start : end + 1])
+            except Exception:
+                pass
+        raise ValueError(f"Could not parse plan response: {content}")
+
+
+def generate_plan(
+    request: str,
+    provider: Optional[str] = None,
+    model: Optional[str] = None,
+) -> Dict[str, Any]:
     """Ask the LLM to generate a structured plan for the request."""
     messages = [
         {"role": "system", "content": PLAN_SYSTEM_PROMPT},
@@ -36,33 +55,20 @@ def generate_plan(request: str, provider: Optional[str] = None, model: Optional[
     ]
     response = chat(messages, tools=[], provider=provider, model=model)
     content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
-    content = content.strip()
-    if content.startswith("```"):
-        content = content.split("\n", 1)[1].rsplit("\n", 1)[0]
-        content = content.removeprefix("json").strip()
-
-    try:
-        plan = json.loads(content)
-    except json.JSONDecodeError:
-        # Fallback: try to extract a JSON block from the text.
-        start = content.find("{")
-        end = content.rfind("}")
-        if start != -1 and end != -1:
-            plan = json.loads(content[start : end + 1])
-        else:
-            raise ValueError(f"Could not parse plan response: {content}")
+    plan = _parse_plan(content)
 
     # Normalize steps.
-    steps = plan.get("steps", [])
     normalized: List[Dict[str, Any]] = []
-    for i, step in enumerate(steps, start=1):
+    for i, step in enumerate(plan.steps, start=1):
         normalized.append({
-            "step": step.get("step", i),
-            "action": str(step.get("action", "")),
-            "tool_hint": step.get("tool_hint", "any"),
+            "step": step.step or i,
+            "action": step.action,
+            "tool_hint": step.tool_hint,
         })
-    plan["steps"] = normalized
-    return plan
+    return {
+        "title": plan.title,
+        "steps": normalized,
+    }
 
 
 def execute_plan_step(
