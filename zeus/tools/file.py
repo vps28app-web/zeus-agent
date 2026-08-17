@@ -2,13 +2,31 @@
 
 import os
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from zeus.core.registry import register_tool
+from zeus.security.permissions import PermissionManager
+
+
+# Default permission manager. CLI/gateways can inject one with a callback.
+_permissions = PermissionManager()
+
+
+def _confirm_prompt(message: str) -> Any:
+    """Default confirmation: deny in non-interactive contexts."""
+    return False
+
+
+def set_file_permission_callback(callback):
+    """Allow CLI/gateway to set a confirmation callback for interactive use."""
+    global _permissions
+    _permissions = PermissionManager(confirm_callback=callback)
 
 
 def read_file(path: str, limit: int = 2000, offset: int = 1) -> Dict[str, Any]:
     file_path = Path(path).expanduser().resolve()
+    if not _permissions.can_read_file(file_path):
+        return {"error": "File read not allowed at current permission level."}
     if not file_path.exists():
         return {"error": f"File not found: {path}"}
     try:
@@ -26,6 +44,9 @@ def read_file(path: str, limit: int = 2000, offset: int = 1) -> Dict[str, Any]:
 
 def write_file(path: str, content: str) -> Dict[str, Any]:
     file_path = Path(path).expanduser().resolve()
+    if not _permissions.can_write_file(file_path):
+        if not _permissions.confirm_action("write", file_path):
+            return {"error": f"Write denied by user for {path}"}
     try:
         file_path.parent.mkdir(parents=True, exist_ok=True)
         file_path.write_text(content, encoding="utf-8")
@@ -34,8 +55,24 @@ def write_file(path: str, content: str) -> Dict[str, Any]:
         return {"error": str(e)}
 
 
+def delete_file(path: str) -> Dict[str, Any]:
+    file_path = Path(path).expanduser().resolve()
+    if not _permissions.can_delete_file(file_path):
+        if not _permissions.confirm_action("delete", file_path):
+            return {"error": f"Delete denied by user for {path}"}
+    try:
+        if file_path.is_file():
+            file_path.unlink()
+            return {"deleted": True, "path": str(file_path)}
+        return {"error": f"Not a file: {path}"}
+    except Exception as e:
+        return {"error": str(e)}
+
+
 def list_directory(path: str = ".") -> Dict[str, Any]:
     dir_path = Path(path).expanduser().resolve()
+    if not _permissions.can_list_directory(dir_path):
+        return {"error": "Directory listing not allowed at current permission level."}
     try:
         entries = []
         for entry in dir_path.iterdir():
@@ -53,6 +90,8 @@ def search_files(pattern: str, path: str = ".") -> Dict[str, Any]:
     import re
 
     dir_path = Path(path).expanduser().resolve()
+    if not _permissions.can_list_directory(dir_path):
+        return {"error": "Directory search not allowed at current permission level."}
     matches: List[Dict[str, Any]] = []
     try:
         for file_path in dir_path.rglob("*"):
@@ -100,6 +139,17 @@ register_tool(
         "required": ["path", "content"],
     },
     handler=write_file,
+)
+
+register_tool(
+    name="delete_file",
+    description="Delete a file.",
+    parameters={
+        "type": "object",
+        "properties": {"path": {"type": "string"}},
+        "required": ["path"],
+    },
+    handler=delete_file,
 )
 
 register_tool(
