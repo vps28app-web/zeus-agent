@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 
 from zeus.core.registry import REGISTRY
 from zeus.core.router import chat
-from zeus.core.schemas import AgentDecision
+from zeus.core.schemas import AgentDecision, PlanOutput
 from zeus.memory.reasoning import ReasoningMemory
 from zeus.observability import get_metrics, get_tracer, report_summary
 
@@ -135,6 +135,59 @@ def execute_tool_call(call: Dict[str, Any], metrics, tracer) -> Dict[str, Any]:
         return {"tool": name, "error": str(e), "traceback": traceback.format_exc()}
 
 
+def _parse_plan(content: str) -> PlanOutput:
+    """Parse LLM response into a structured PlanOutput for replanning."""
+    text = content.strip()
+    if text.startswith("```"):
+        text = text.split("\n", 1)[1].rsplit("\n", 1)[0]
+        text = text.removeprefix("json").strip()
+    try:
+        return PlanOutput.model_validate_json(text)
+    except Exception:
+        start = text.find("{")
+        end = text.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            try:
+                return PlanOutput.model_validate_json(text[start : end + 1])
+            except Exception:
+                pass
+        raise ValueError(f"Could not parse plan response: {content}")
+
+
+def _generate_replan(
+    user_input: str,
+    failed_tool: str,
+    error: str,
+    history_summary: str,
+    messages: List[Dict[str, Any]],
+) -> str:
+    """Ask the LLM for a short replan after a tool failure."""
+    prompt = f"""The agent failed while executing a step.
+
+Original task: {user_input}
+Failed tool: {failed_tool}
+Error: {error}
+History: {history_summary}
+
+Create a concise replan. Respond ONLY with a JSON object matching this schema:
+{{"title": "replan title", "steps": [{{"step": 1, "action": "...", "tool_hint": "..."}}]}}
+"""
+    replan_messages = [
+        {"role": "system", "content": "You are a replanning assistant. Output only valid JSON."},
+        {"role": "user", "content": prompt},
+    ]
+    try:
+        response = chat(replan_messages, tools=[])
+        content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
+        plan = _parse_plan(content)
+        lines = [f"Replan: {plan.title}"]
+        for step in plan.steps:
+            lines.append(f"  {step.step}. {step.action} [{step.tool_hint}]")
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Replan failed: {e}. Try a different tool or adjust arguments."
+
+
 def run_agent(
     user_input: str,
     session_id: Optional[str] = None,
@@ -159,11 +212,10 @@ def run_agent(
     profile_context = ""
     if user_id:
         profile_store = UserProfileStore()
-        # Learn from current message before responding.
         profile_store.learn_from_message(user_id, platform, user_input, role="user")
         profile_context = profile_store.format_context(user_id)
 
-    reasoning_memory = ReasoningMemory() if enable_reasoning_memory else None
+    reasoning_memory = ReasoningMemory(user_id=user_id) if enable_reasoning_memory else None
     reasoning_context = reasoning_memory.format_context(user_input) if reasoning_memory else ""
 
     system_prompt = SYSTEM_PROMPT
@@ -197,7 +249,6 @@ def run_agent(
             usage = response.get("usage", {})
             input_tokens = usage.get("prompt_tokens", 0) or usage.get("input_tokens", 0)
             output_tokens = usage.get("completion_tokens", 0) or usage.get("output_tokens", 0)
-            # Try to infer provider/model from response
             provider = response.get("provider") or provider
             model = response.get("model") or model
             metrics.record_llm_call(llm_latency_ms, input_tokens, output_tokens)
@@ -215,8 +266,8 @@ def run_agent(
         if decision is None:
             native_calls = response.get("choices", [{}])[0].get("message", {}).get("tool_calls") or []
             if not native_calls:
-                tracer.finish_span(status="ok")
-                return content or "No response."
+                final_response = content or "No response."
+                break
             assistant_message = {"role": "assistant", "content": content or "", "tool_calls": native_calls}
             messages.append(assistant_message)
             for call in native_calls:
@@ -232,6 +283,13 @@ def run_agent(
                         "content": json.dumps(result),
                     }
                 )
+                if isinstance(result, dict) and result.get("error"):
+                    history_summary = " ".join(
+                        f"{m.get('role')}: {str(m.get('content', ''))[:80]}"
+                        for m in messages[-6:]
+                    )
+                    replan = _generate_replan(user_input, call.get("function", {}).get("name", ""), result["error"], history_summary, messages)
+                    messages.append({"role": "system", "content": replan})
             continue
 
         # Structured JSON path.
@@ -263,15 +321,14 @@ def run_agent(
                     "content": json.dumps(result),
                 }
             )
-            # Inject a soft replanning hint if the tool failed.
             if isinstance(result, dict) and result.get("error"):
-                messages.append({
-                    "role": "system",
-                    "content": (
-                        "The last tool call returned an error. "
-                        "Replan: try a different tool, adjust arguments, or ask the user for clarification."
-                    ),
-                })
+                history_summary = " ".join(
+                    f"{m.get('role')}: {str(m.get('content', ''))[:80]}"
+                    for m in messages[-6:]
+                )
+                failed_name = call.get("function", {}).get("name", "")
+                replan = _generate_replan(user_input, failed_name, result["error"], history_summary, messages)
+                messages.append({"role": "system", "content": replan})
 
     if final_response:
         if reasoning_memory and last_reasoning:

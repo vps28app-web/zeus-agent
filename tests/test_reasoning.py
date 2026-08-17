@@ -29,13 +29,31 @@ def test_reasoning_memory_avoids_duplicates():
     mem.clear()
 
 
-def test_reasoning_memory_format_context():
-    mem = ReasoningMemory()
+def test_reasoning_memory_isolated_by_user():
+    mem_a = ReasoningMemory(user_id="user-a")
+    mem_b = ReasoningMemory(user_id="user-b")
+    mem_a.clear()
+    mem_b.clear()
+
+    mem_a.save("deploy", "use git", "ok")
+    mem_b.save("deploy", "use ftp", "ok")
+
+    assert len(mem_a.recall("deploy")) == 1
+    assert mem_a.recall("deploy")[0]["reasoning"] == "use git"
+    assert mem_b.recall("deploy")[0]["reasoning"] == "use ftp"
+
+    mem_a.clear()
+    mem_b.clear()
+
+
+def test_reasoning_memory_keyword_fallback():
+    mem = ReasoningMemory(user_id="keyword-test")
     mem.clear()
 
-    mem.save("test task", "think step by step", "success")
-    context = mem.format_context("test task")
+    mem.save("fix bug", "check logs and restart", "fixed")
+    results = mem.recall("logs")
 
-    assert "Past Reasoning Insights" in context
-    assert "think step by step" in context
+    assert len(results) == 1
+    assert "logs" in results[0]["reasoning"]
+
     mem.clear()
