@@ -23,7 +23,7 @@ from zeus.observability import get_metrics
 from zeus.tools import terminal, file, web, memory_tools, sandbox_client, sandbox, git, code_execution, browser, database, scheduler, user_profile_tools  # noqa: F401
 
 
-def _ask_file_permission(message: str) -> Any:
+def _ask_file_permission(session: PromptSession, message: str) -> Any:
     """Interactive confirmation for file write/delete actions."""
     from prompt_toolkit.formatted_text import ANSI
 
@@ -257,7 +257,7 @@ def main() -> None:
 
     # Connect interactive file permission callback.
     from zeus.tools.file import set_file_permission_callback
-    set_file_permission_callback(_ask_file_permission)
+    set_file_permission_callback(lambda msg: _ask_file_permission(session, msg))
 
     if args.query:
         logger.log_turn("user", args.query)
