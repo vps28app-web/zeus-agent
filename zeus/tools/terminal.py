@@ -4,10 +4,21 @@ import subprocess
 from typing import Any, Dict
 
 from zeus.core.registry import register_tool
+from zeus.security.permissions import PermissionManager, check_shell_safety
+
+
+_permissions = PermissionManager()
 
 
 def run_terminal(command: str, timeout: int = 60) -> Dict[str, Any]:
     """Run a shell command and return stdout, stderr, and exit code."""
+    if not _permissions.can_run_terminal():
+        return {"error": _permissions.denied_message("run_terminal")}
+
+    safety = check_shell_safety(command)
+    if safety:
+        return {"error": safety}
+
     result = subprocess.run(
         command,
         shell=True,
