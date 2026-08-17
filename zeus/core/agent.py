@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 from zeus.core.registry import REGISTRY
 from zeus.core.router import chat
 from zeus.core.schemas import AgentDecision
+from zeus.memory.reasoning import ReasoningMemory
 from zeus.observability import get_metrics, get_tracer, report_summary
 
 
@@ -43,6 +44,8 @@ You MUST respond with a single valid JSON object matching this exact schema:
 5. **Be concise.** Explain why you are calling a tool in `reasoning`, then summarize the result.
 6. **Cite outputs.** When giving a final answer, reference the tool outputs that support it.
 7. **Stop when done.** If you have a final answer, do not call more tools.
+8. **Replan on failure.** If a tool returns an error or unexpected result, explain what went wrong in `reasoning` and choose a different approach.
+9. **Learn from reasoning.** When you successfully solve a task, your reasoning may be saved to help with similar future tasks.
 """
 
 
@@ -141,6 +144,7 @@ def run_agent(
     stream: bool = False,
     stream_callback=None,
     tool_callback=None,
+    enable_reasoning_memory: bool = True,
 ) -> str:
     metrics = get_metrics(session_id)
     tracer = get_tracer(session_id)
@@ -159,7 +163,12 @@ def run_agent(
         profile_store.learn_from_message(user_id, platform, user_input, role="user")
         profile_context = profile_store.format_context(user_id)
 
+    reasoning_memory = ReasoningMemory() if enable_reasoning_memory else None
+    reasoning_context = reasoning_memory.format_context(user_input) if reasoning_memory else ""
+
     system_prompt = SYSTEM_PROMPT
+    if reasoning_context:
+        system_prompt += f"\n\n{reasoning_context}\n"
     if profile_context:
         system_prompt += f"\n\n## User Profile\n{profile_context}\n"
     if mem_context:
@@ -172,6 +181,8 @@ def run_agent(
 
     provider = None
     model = None
+    last_reasoning = ""
+    final_response = ""
 
     for turn in range(max_turns):
         from zeus.memory.context import prune_messages
@@ -224,16 +235,17 @@ def run_agent(
             continue
 
         # Structured JSON path.
+        last_reasoning = decision.reasoning
         messages.append({"role": "assistant", "content": content or ""})
 
         if decision.response and not decision.tool_calls:
-            tracer.finish_span(status="ok")
-            return decision.response
+            final_response = decision.response
+            break
 
         calls = _tool_calls_from_decision(decision)
         if not calls:
-            tracer.finish_span(status="ok")
-            return decision.response or "No response."
+            final_response = decision.response or "No response."
+            break
 
         assistant_message = {"role": "assistant", "content": content or "", "tool_calls": calls}
         messages.append(assistant_message)
@@ -251,6 +263,21 @@ def run_agent(
                     "content": json.dumps(result),
                 }
             )
+            # Inject a soft replanning hint if the tool failed.
+            if isinstance(result, dict) and result.get("error"):
+                messages.append({
+                    "role": "system",
+                    "content": (
+                        "The last tool call returned an error. "
+                        "Replan: try a different tool, adjust arguments, or ask the user for clarification."
+                    ),
+                })
+
+    if final_response:
+        if reasoning_memory and last_reasoning:
+            reasoning_memory.save(user_input, last_reasoning, final_response)
+        tracer.finish_span(status="ok")
+        return final_response
 
     tracer.finish_span(status="error", attributes={"reason": "max_turns_reached"})
     return "Maximum turns reached."
