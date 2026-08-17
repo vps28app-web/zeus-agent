@@ -303,3 +303,127 @@ class ScheduledTaskRepository:
             conn.commit()
         finally:
             conn.close()
+
+
+class UserProfileRepository:
+    def __init__(self, db_path: Optional[Path] = None):
+        self.db_path = db_path
+
+    def _parse(self, row: sqlite3.Row) -> Dict[str, Any]:
+        return {
+            "user_id": row["user_id"],
+            "platform": row["platform"],
+            "name": row["name"],
+            "preferences": json.loads(row["preferences"]) if row["preferences"] else [],
+            "habits": json.loads(row["habits"]) if row["habits"] else [],
+            "raw_notes": row["raw_notes"] or "",
+            "updated_at": row["updated_at"],
+            "created_at": row["created_at"],
+        }
+
+    def upsert(
+        self,
+        user_id: str,
+        platform: Optional[str] = None,
+        name: Optional[str] = None,
+        preferences: Optional[List[str]] = None,
+        habits: Optional[List[str]] = None,
+        raw_notes: Optional[str] = None,
+    ) -> None:
+        conn = get_connection(self.db_path)
+        try:
+            existing = conn.execute(
+                "SELECT * FROM user_profiles WHERE user_id = ?", (user_id,)
+            ).fetchone()
+
+            if existing:
+                merged_name = name if name is not None else existing["name"]
+                merged_preferences = self._merge_json_list(
+                    existing["preferences"], preferences
+                )
+                merged_habits = self._merge_json_list(existing["habits"], habits)
+                merged_notes = self._merge_text(existing["raw_notes"], raw_notes)
+                conn.execute(
+                    """UPDATE user_profiles SET
+                        platform = COALESCE(?, platform),
+                        name = ?,
+                        preferences = ?,
+                        habits = ?,
+                        raw_notes = ?,
+                        updated_at = datetime('now')
+                    WHERE user_id = ?""",
+                    (
+                        platform,
+                        merged_name,
+                        json.dumps(merged_preferences, ensure_ascii=False),
+                        json.dumps(merged_habits, ensure_ascii=False),
+                        merged_notes,
+                        user_id,
+                    ),
+                )
+            else:
+                conn.execute(
+                    """INSERT INTO user_profiles
+                        (user_id, platform, name, preferences, habits, raw_notes)
+                    VALUES (?, ?, ?, ?, ?, ?)""",
+                    (
+                        user_id,
+                        platform,
+                        name,
+                        json.dumps(preferences or [], ensure_ascii=False),
+                        json.dumps(habits or [], ensure_ascii=False),
+                        raw_notes or "",
+                    ),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def _merge_json_list(self, existing_json: Optional[str], new_items: Optional[List[str]]) -> List[str]:
+        existing: List[str] = []
+        if existing_json:
+            try:
+                existing = json.loads(existing_json)
+            except Exception:
+                pass
+        if not new_items:
+            return existing
+        combined = existing + [i for i in new_items if i not in existing]
+        return combined
+
+    def _merge_text(self, existing: Optional[str], new_text: Optional[str]) -> str:
+        existing = existing or ""
+        new_text = new_text or ""
+        if not new_text.strip():
+            return existing
+        if existing.strip() in new_text.strip() or new_text.strip() in existing.strip():
+            return existing if len(existing) >= len(new_text) else new_text
+        return f"{existing}\n{new_text}".strip()
+
+    def get(self, user_id: str) -> Optional[Dict[str, Any]]:
+        conn = get_connection(self.db_path)
+        try:
+            row = conn.execute(
+                "SELECT * FROM user_profiles WHERE user_id = ?", (user_id,)
+            ).fetchone()
+            return self._parse(row) if row else None
+        finally:
+            conn.close()
+
+    def list_all(self) -> List[Dict[str, Any]]:
+        conn = get_connection(self.db_path)
+        try:
+            rows = conn.execute(
+                "SELECT * FROM user_profiles ORDER BY updated_at DESC"
+            ).fetchall()
+            return [self._parse(row) for row in rows]
+        finally:
+            conn.close()
+
+    def delete(self, user_id: str) -> None:
+        conn = get_connection(self.db_path)
+        try:
+            conn.execute("DELETE FROM user_profiles WHERE user_id = ?", (user_id,))
+            conn.commit()
+        finally:
+            conn.close()

@@ -101,6 +101,8 @@ def normalize_tool_calls(response: Dict[str, Any]) -> tuple[List[Dict[str, Any]]
 def run_agent(
     user_input: str,
     session_id: Optional[str] = None,
+    user_id: Optional[str] = None,
+    platform: Optional[str] = None,
     max_turns: int = 20,
     stream: bool = False,
     stream_callback=None,
@@ -111,10 +113,21 @@ def run_agent(
     tracer.start_span("run_agent", {"user_input": user_input})
 
     from zeus.memory.store import MemoryStore
+    from zeus.memory.user_profile import UserProfileStore
+
     mem_store = MemoryStore()
     mem_context = mem_store.get_summary_context()
 
+    profile_context = ""
+    if user_id:
+        profile_store = UserProfileStore()
+        # Learn from current message before responding.
+        profile_store.learn_from_message(user_id, platform, user_input, role="user")
+        profile_context = profile_store.format_context(user_id)
+
     system_prompt = SYSTEM_PROMPT
+    if profile_context:
+        system_prompt += f"\n\n## User Profile\n{profile_context}\n"
     if mem_context:
         system_prompt += f"\n\n## Persistent User Profile & Knowledge\n{mem_context}\n"
 

@@ -19,13 +19,24 @@ from zeus.memory.session_log import get_logger
 DEFAULT_AGENT_TIMEOUT = float(os.getenv("ZEUS_GATEWAY_AGENT_TIMEOUT", "120"))
 
 
-def _run_agent_with_timeout(text: str, session_id: Optional[str], timeout: float = DEFAULT_AGENT_TIMEOUT):
+def _run_agent_with_timeout(
+    text: str,
+    session_id: Optional[str],
+    user_id: Optional[str] = None,
+    platform: Optional[str] = None,
+    timeout: float = DEFAULT_AGENT_TIMEOUT,
+):
     """Run the agent in a background thread and return the result or raise TimeoutError."""
     result: Dict[str, Any] = {"value": None, "error": None}
 
     def target():
         try:
-            result["value"] = run_agent(text, session_id=session_id)
+            result["value"] = run_agent(
+                text,
+                session_id=session_id,
+                user_id=user_id,
+                platform=platform,
+            )
         except Exception as e:
             result["error"] = e
 
@@ -157,9 +168,15 @@ class TelegramGateway:
 
         print(f"Message from {username} ({chat_id}): {text[:80]}")
 
+        user_id = str(chat_id)
+
         def worker():
             logger = get_logger(f"telegram-{chat_id}-{message_id}")
-            logger.log_turn("user", text, metadata={"chat_id": chat_id, "username": username})
+            logger.log_turn(
+                "user",
+                text,
+                metadata={"chat_id": chat_id, "username": username, "user_id": user_id},
+            )
 
             typing_stop = threading.Event()
             typing_thread = threading.Thread(
@@ -170,8 +187,17 @@ class TelegramGateway:
             typing_thread.start()
 
             try:
-                response = _run_agent_with_timeout(text, session_id=logger.session_id)
-                logger.log_turn("assistant", response, metadata={"chat_id": chat_id})
+                response = _run_agent_with_timeout(
+                    text,
+                    session_id=logger.session_id,
+                    user_id=user_id,
+                    platform="telegram",
+                )
+                logger.log_turn(
+                    "assistant",
+                    response,
+                    metadata={"chat_id": chat_id, "user_id": user_id},
+                )
                 self.send_message(chat_id, response, reply_to_message_id=message_id)
             except TimeoutError as e:
                 logger.log_turn("error", str(e), metadata={"chat_id": chat_id})
