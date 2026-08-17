@@ -1,6 +1,7 @@
 """User profile learning: extract and persist names, preferences, and habits."""
 
 import json
+import os
 import re
 from typing import Any, Dict, List, Optional
 
@@ -36,7 +37,7 @@ def _extract_by_patterns(text: str, patterns: List[re.Pattern]) -> List[str]:
 
 
 def extract_profile_signals(text: str) -> Dict[str, Any]:
-    """Extract potential profile signals from a single message."""
+    """Extract potential profile signals from a single message using heuristics."""
     names = _extract_by_patterns(text, _NAME_PATTERNS)
     preferences = _extract_by_patterns(text, _PREFERENCE_PATTERNS)
     habits = _extract_by_patterns(text, _HABIT_PATTERNS)
@@ -47,12 +48,58 @@ def extract_profile_signals(text: str) -> Dict[str, Any]:
     }
 
 
+def extract_profile_signals_with_llm(text: str) -> Dict[str, Any]:
+    """Extract profile signals using a lightweight LLM call as fallback/enrichment."""
+    import os
+
+    from zeus.core.router import chat
+
+    prompt = f"""Analise a mensagem abaixo e extraia informações sobre o usuário.
+Retorne APENAS um objeto JSON com este formato exacto:
+{{"name": "..." ou null, "preferences": ["..."], "habits": ["..."]}}
+
+Mensagem: \"{text}\"
+"""
+    messages = [
+        {"role": "system", "content": "Você é um extrator de perfil de usuário. Responda apenas com JSON válido."},
+        {"role": "user", "content": prompt},
+    ]
+
+    try:
+        response = chat(messages, tools=[], provider=os.getenv("ZEUS_PROFILE_PROVIDER"), model=os.getenv("ZEUS_PROFILE_MODEL"))
+        content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
+        # Strip markdown fences if present.
+        content = content.strip()
+        if content.startswith("```"):
+            content = content.split("\n", 1)[1].rsplit("\n", 1)[0]
+            content = content.removeprefix("json").strip()
+        parsed = json.loads(content)
+        return {
+            "name": parsed.get("name") or None,
+            "preferences": [p for p in parsed.get("preferences", []) if isinstance(p, str)],
+            "habits": [h for h in parsed.get("habits", []) if isinstance(h, str)],
+        }
+    except Exception:
+        return {"name": None, "preferences": [], "habits": []}
+
+
 class UserProfileStore:
     """High-level store for user profiles with automatic signal extraction."""
 
     def __init__(self, repo: Optional[UserProfileRepository] = None):
         init_db()
         self._repo = repo or UserProfileRepository()
+
+    def _extract(self, text: str) -> Dict[str, Any]:
+        """Combine heuristic extraction with optional LLM enrichment."""
+        heuristic = extract_profile_signals(text)
+        if any([heuristic["name"], heuristic["preferences"], heuristic["habits"]]):
+            return heuristic
+
+        if os.getenv("ZEUS_PROFILE_USE_LLM", "false").lower() in ("1", "true", "yes"):
+            return extract_profile_signals_with_llm(text)
+
+        return heuristic
 
     def learn_from_message(
         self,
@@ -65,7 +112,7 @@ class UserProfileStore:
         if role != "user":
             return {"updated": False, "reason": "only user messages are learned"}
 
-        signals = extract_profile_signals(text)
+        signals = self._extract(text)
         if not any([signals["name"], signals["preferences"], signals["habits"]]):
             return {"updated": False, "reason": "no signals found"}
 

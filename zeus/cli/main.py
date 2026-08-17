@@ -19,7 +19,7 @@ from zeus.core.agent import run_agent, run_summary
 from zeus.core.team import create_default_team, Team, Worker
 from zeus.memory.session_log import get_logger
 from zeus.observability import get_metrics
-from zeus.tools import terminal, file, web, memory_tools, sandbox_client, sandbox, git, code_execution, browser, database, scheduler  # noqa: F401
+from zeus.tools import terminal, file, web, memory_tools, sandbox_client, sandbox, git, code_execution, browser, database, scheduler, user_profile_tools  # noqa: F401
 
 
 def _load_env() -> None:

@@ -97,12 +97,26 @@ class WhatsAppGateway:
 
         print(f"WhatsApp message from {from_jid}: {text[:80]}")
         session_id = f"whatsapp-{from_jid.replace('@', '-')}"
+        user_id = from_jid
         logger = get_logger(session_id)
-        logger.log_turn("user", text, metadata={"from": from_jid, "timestamp": timestamp})
+        logger.log_turn(
+            "user",
+            text,
+            metadata={"from": from_jid, "timestamp": timestamp, "user_id": user_id},
+        )
 
         try:
-            response = run_agent(text, session_id=logger.session_id)
-            logger.log_turn("assistant", response, metadata={"from": from_jid})
+            response = run_agent(
+                text,
+                session_id=logger.session_id,
+                user_id=user_id,
+                platform="whatsapp",
+            )
+            logger.log_turn(
+                "assistant",
+                response,
+                metadata={"from": from_jid, "user_id": user_id},
+            )
             self.send_message(from_jid, response)
         except Exception as e:
             logger.log_turn("error", str(e), metadata={"from": from_jid})

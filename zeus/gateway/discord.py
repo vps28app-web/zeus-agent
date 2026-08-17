@@ -64,6 +64,7 @@ class DiscordClient(discord.Client):
 
         print(f"Discord message from {message.author} ({user_id}): {text[:80]}")
         session_id = f"discord-{user_id}-{channel_id}"
+        platform_user_id = str(user_id)
         logger = get_logger(session_id)
         logger.log_turn(
             "user",
@@ -77,8 +78,17 @@ class DiscordClient(discord.Client):
         )
 
         try:
-            response = run_agent(text, session_id=logger.session_id)
-            logger.log_turn("assistant", response, metadata={"platform": "discord"})
+            response = run_agent(
+                text,
+                session_id=logger.session_id,
+                user_id=platform_user_id,
+                platform="discord",
+            )
+            logger.log_turn(
+                "assistant",
+                response,
+                metadata={"platform": "discord", "user_id": user_id},
+            )
             await self._send_chunks(message.channel, response)
         except Exception as e:
             logger.log_turn("error", str(e), metadata={"platform": "discord"})
