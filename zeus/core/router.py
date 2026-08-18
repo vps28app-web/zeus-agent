@@ -336,7 +336,7 @@ def _normalize_response(response: Dict[str, Any], provider: str) -> Dict[str, An
     """Convert provider-native response to OpenAI-like choices/message format."""
     if provider == "ollama":
         message = response.get("message", {})
-        return {
+        res = {
             "choices": [
                 {
                     "message": {
@@ -347,6 +347,12 @@ def _normalize_response(response: Dict[str, Any], provider: str) -> Dict[str, An
                 }
             ]
         }
+        if "prompt_eval_count" in response or "eval_count" in response:
+            res["usage"] = {
+                "prompt_tokens": response.get("prompt_eval_count", 0),
+                "completion_tokens": response.get("eval_count", 0),
+            }
+        return res
 
     if provider == "anthropic":
         content_blocks = response.get("content", [])
@@ -364,7 +370,7 @@ def _normalize_response(response: Dict[str, Any], provider: str) -> Dict[str, An
                         "arguments": json.dumps(block.get("input", {})),
                     },
                 })
-        return {
+        res = {
             "choices": [
                 {
                     "message": {
@@ -375,6 +381,12 @@ def _normalize_response(response: Dict[str, Any], provider: str) -> Dict[str, An
                 }
             ]
         }
+        if "usage" in response:
+            res["usage"] = {
+                "prompt_tokens": response["usage"].get("input_tokens", 0),
+                "completion_tokens": response["usage"].get("output_tokens", 0),
+            }
+        return res
 
     if provider == "google":
         candidates = response.get("candidates", [])
@@ -396,7 +408,7 @@ def _normalize_response(response: Dict[str, Any], provider: str) -> Dict[str, An
                         "arguments": json.dumps(fc.get("args", {})),
                     },
                 })
-        return {
+        res = {
             "choices": [
                 {
                     "message": {
@@ -407,6 +419,13 @@ def _normalize_response(response: Dict[str, Any], provider: str) -> Dict[str, An
                 }
             ]
         }
+        usage_meta = response.get("usageMetadata", {})
+        if usage_meta:
+            res["usage"] = {
+                "prompt_tokens": usage_meta.get("promptTokenCount", 0),
+                "completion_tokens": usage_meta.get("candidatesTokenCount", 0),
+            }
+        return res
 
     # openrouter, openai, opencode_go, deepseek, mistral already return OpenAI-like format
     return response
