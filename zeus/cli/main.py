@@ -12,8 +12,38 @@ from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
 from prompt_toolkit import PromptSession
+from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.formatted_text import ANSI
+
+
+class ZeusCommandCompleter(Completer):
+    """Autocompletion menu for CLI slash commands."""
+
+    COMMANDS = {
+        "/new": "Cria uma nova sessão (novo ID)",
+        "/reset": "Reseta a sessão atual (mantém ID, zera métricas)",
+        "/clear": "Limpa a tela",
+        "/summary": "Mostra resumo da sessão",
+        "/models": "Troca o modelo/provedor LLM",
+        "/plan": "Cria e executa um plano passo a passo",
+        "/team": "Executa com equipe multi-agente",
+        "/exit": "Encerra o Zeus",
+        "/help": "Mostra a ajuda de comandos",
+    }
+
+    def get_completions(self, document, complete_event):
+        text = document.text_before_cursor
+        if text.startswith("/"):
+            query = text.split()[0] if text.split() else text
+            for cmd, desc in self.COMMANDS.items():
+                if cmd.startswith(query):
+                    yield Completion(
+                        cmd,
+                        start_position=-len(query),
+                        display=cmd,
+                        display_meta=desc,
+                    )
 
 from zeus.core.agent import run_agent, run_summary
 from zeus.core.planner import generate_plan, execute_plan_step
@@ -154,6 +184,38 @@ def _print_agent_response(response: str, title: str = "ZEUS", model: str = "") -
     print()
 
 
+def _print_command_menu() -> None:
+    """Print a visual menu of available slash commands."""
+    term_width = _get_term_width()
+    title = " ⚡ MENU DE COMANDOS "
+    line_length = max(10, term_width - len(title) - 6)
+    top = _color("╭──", 33) + _color(title, "1;33") + _color("─" * line_length, 33)
+    bottom = _color("╰" + "─" * (term_width - 3), 33)
+
+    commands = [
+        ("/new", "Cria uma nova sessão (novo ID)"),
+        ("/reset", "Reseta a sessão atual (mantém ID, zera métricas)"),
+        ("/clear", "Limpa a tela"),
+        ("/summary", "Mostra resumo da sessão"),
+        ("/models", "Troca o modelo/provedor LLM"),
+        ("/plan <tarefa>", "Cria e executa um plano passo a passo"),
+        ("/team <tarefa>", "Executa com equipe multi-agente"),
+        ("/help", "Mostra este menu"),
+        ("/exit", "Encerra o Zeus"),
+    ]
+
+    print()
+    print(top)
+    print(f"{_color('│', 33)}  {_color('Digite /comando ou escolha abaixo:', 90)}")
+    print(f"{_color('│', 33)}")
+    max_cmd = max(len(cmd) for cmd, _ in commands)
+    for cmd, desc in commands:
+        pad = " " * (max_cmd - len(cmd))
+        print(f"{_color('│', 33)}  {_color(cmd, '1;33')}{pad}  {desc}")
+    print(bottom)
+    print()
+
+
 def _print_plan(plan: Dict[str, Any]) -> None:
     """Print a structured plan card."""
     term_width = _get_term_width()
@@ -273,21 +335,27 @@ def main() -> None:
             print(run_summary(session_id=logger.session_id))
         return
 
-    session = PromptSession(history=FileHistory(".zeus_history"))
+    session = PromptSession(
+        history=FileHistory(".zeus_history"),
+        completer=ZeusCommandCompleter(),
+    )
     _print_banner(logger, metrics)
 
     while True:
-        prompt_text = _build_prompt(logger, metrics)
+        prompt_text = _build_prompt(logger, get_metrics(logger.session_id))
         try:
             user_input = session.prompt(ANSI(prompt_text))
-        except (EOFError, KeyboardInterrupt):
+        except KeyboardInterrupt:
+            print(f"\n{_color('⚡ Digite /exit ou pressione Ctrl+D para sair.', 90)}")
+            continue
+        except EOFError:
             print("\nSaindo...")
             break
 
         text = user_input.strip()
         if not text:
             continue
-        if text in ("/sair", "/quit", "/exit"):
+        if text in ("/exit", "exit"):
             print("Saindo...")
             break
         if text == "/new":
@@ -308,18 +376,8 @@ def main() -> None:
         if text == "/summary":
             print(run_summary(session_id=logger.session_id))
             continue
-        if text in ("/help", "/?"):
-            print("\nComandos disponíveis:")
-            print("  /new      - Cria uma nova sessão (novo ID)")
-            print("  /reset    - Reseta a sessão atual (mantém ID, zera métricas)")
-            print("  /clear    - Limpa a tela")
-            print("  /summary  - Mostra resumo da sessão")
-            print("  /models   - Troca o modelo/provedor LLM")
-            print("  /plan <tarefa> - Cria e executa um plano passo a passo")
-            print("  /team <tarefa> - Executa com equipe multi-agente")
-            print("  /sair     - Encerra o Zeus")
-            print("  /exit, /quit - Alias para /sair")
-            print("  /help     - Mostra esta ajuda\n")
+        if text in ("/", "/help", "/?"):
+            _print_command_menu()
             continue
 
         if text == "/models":
@@ -339,6 +397,9 @@ def main() -> None:
                 response = team.run(task)
                 logger.log_turn("assistant", response)
                 _print_agent_response(response, title="Equipe Multi-Agente")
+            except KeyboardInterrupt:
+                logger.log_turn("system", "Interrupted by user (Ctrl+C)")
+                print(f"\n{_color('⚡ Execução da equipe interrompida pelo usuário (Ctrl+C).', 33)}\n")
             except Exception as e:
                 logger.log_turn("error", str(e))
                 print(f"\n{_color('❌ Erro:', '1;31')} {e}\n", file=sys.stderr)
@@ -374,6 +435,9 @@ def main() -> None:
                     _print_agent_response(summary, title="RESULTADO DO PLANO")
                 else:
                     print(f"\n{_color('Plano cancelado.', 33)}\n")
+            except KeyboardInterrupt:
+                logger.log_turn("system", "Interrupted by user (Ctrl+C)")
+                print(f"\n{_color('⚡ Execução do plano interrompida pelo usuário (Ctrl+C).', 33)}\n")
             except Exception as e:
                 logger.log_turn("error", str(e))
                 print(f"\n{_color('❌ Erro:', '1;31')} {e}\n", file=sys.stderr)
@@ -383,8 +447,16 @@ def main() -> None:
         _print_user_closing()
         try:
             response = run_agent(text, session_id=logger.session_id, tool_callback=_print_tool_execution)
-            logger.log_turn("assistant", response)
-            _print_agent_response(response)
+            if isinstance(response, dict) and response.get("permission_required"):
+                perm = response["permission_required"]
+                resp_text = f"Permissão necessária: {perm.get('action')} em '{perm.get('path')}'."
+            else:
+                resp_text = str(response)
+            logger.log_turn("assistant", resp_text)
+            _print_agent_response(resp_text)
+        except KeyboardInterrupt:
+            logger.log_turn("system", "Interrupted by user (Ctrl+C)")
+            print(f"\n{_color('⚡ Execução interrompida pelo usuário (Ctrl+C).', 33)}\n")
         except Exception as e:
             logger.log_turn("error", str(e))
             print(f"\n{_color('❌ Erro:', '1;31')} {e}\n", file=sys.stderr)
