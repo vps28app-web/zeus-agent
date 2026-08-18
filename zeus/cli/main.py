@@ -27,7 +27,7 @@ class ZeusCommandCompleter(Completer):
         "/summary": "Mostra resumo da sessão",
         "/skills": "Seleciona um skill set/persona para filtrar ferramentas",
         "/models": "Troca o modelo/provedor LLM",
-        "/plan": "Cria e executa um plano passo a passo",
+        "/plan": "Cria e executa um plano passo a passo (use /plan bmad <ideia> para análise de modelo de negócio)",
         "/team": "Executa com equipe multi-agente",
         "/exit": "Encerra o Zeus",
         "/help": "Mostra a ajuda de comandos",
@@ -125,7 +125,7 @@ def _print_skills_menu(active_filter: Optional[set]) -> None:
 
 
 from zeus.core.agent import run_agent, run_summary
-from zeus.core.planner import generate_plan, execute_plan_step
+from zeus.core.planner import generate_plan, generate_bmad_plan, execute_plan_step
 from zeus.core.registry import REGISTRY
 from zeus.core.team import create_default_team, Team, Worker
 from zeus.memory.session_log import get_logger
@@ -279,6 +279,7 @@ def _print_command_menu() -> None:
         ("/summary", "Mostra resumo da sessão"),
         ("/models", "Troca o modelo/provedor LLM"),
         ("/plan <tarefa>", "Cria e executa um plano passo a passo"),
+        ("/plan bmad <ideia>", "Análise BMAD de modelo de negócio"),
         ("/team <tarefa>", "Executa com equipe multi-agente"),
         ("/help", "Mostra este menu"),
         ("/exit", "Encerra o Zeus"),
@@ -514,7 +515,10 @@ def main() -> None:
             logger.log_turn("user", text)
             _print_user_closing()
             try:
-                plan = generate_plan(task)
+                if task.lower().startswith("bmad "):
+                    plan = generate_bmad_plan(task[len("bmad "):].strip())
+                else:
+                    plan = generate_plan(task)
                 _print_plan(plan)
                 if _ask_confirmation(session, "Executar este plano?"):
                     results: List[Dict[str, Any]] = []

@@ -43,6 +43,25 @@ def _parse_plan(content: str) -> PlanOutput:
         raise ValueError(f"Could not parse plan response: {content}")
 
 
+def generate_bmad_plan(idea: str) -> Dict[str, Any]:
+    """Generate a fixed BMAD (Business Model Analysis and Design) plan for an idea."""
+    return {
+        "title": f"BMAD: {idea}",
+        "steps": [
+            {"step": 1, "action": f"Definir a proposta de valor principal de '{idea}'", "tool_hint": "any"},
+            {"step": 2, "action": "Identificar os segmentos de clientes prioritários", "tool_hint": "any"},
+            {"step": 3, "action": "Mapear os canais de entrega e comunicação", "tool_hint": "any"},
+            {"step": 4, "action": "Definir o tipo de relacionamento com cada segmento", "tool_hint": "any"},
+            {"step": 5, "action": "Listar as fontes de receita e precificação", "tool_hint": "any"},
+            {"step": 6, "action": "Identificar os recursos-chave necessários", "tool_hint": "any"},
+            {"step": 7, "action": "Listar as atividades-chave para operar", "tool_hint": "any"},
+            {"step": 8, "action": "Mapear parcerias-chave e fornecedores estratégicos", "tool_hint": "any"},
+            {"step": 9, "action": "Estruturar os principais custos e investimentos", "tool_hint": "any"},
+            {"step": 10, "action": "Sintetizar o modelo de negócio e validar coerência entre os blocos", "tool_hint": "any"},
+        ],
+    }
+
+
 def generate_plan(
     request: str,
     provider: Optional[str] = None,
