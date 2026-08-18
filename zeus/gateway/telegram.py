@@ -217,20 +217,20 @@ class TelegramGateway:
                 )
 
                 # Check if a file permission confirmation was triggered.
-                if "Write denied by user" in response or "Delete denied by user" in response:
-                    # Extract action and path from the denial message.
-                    parts = response.replace("Write denied by user for ", "").replace("Delete denied by user for ", "").strip()
-                    action = "write" if "Write denied" in response else "delete"
+                if isinstance(response, dict) and response.get("permission_required"):
+                    perm = response["permission_required"]
+                    action = perm.get("action", "write")
+                    path = perm.get("path", "")
                     self._confirmations.request(
                         "telegram",
                         user_id,
                         action,
-                        parts,
-                        on_response=lambda choice, original=text, cid=chat_id, mid=message_id, sid=logger.session_id: (
-                            self._resume_after_confirmation(original, choice, cid, mid, sid, user_id)
+                        path,
+                        on_response=lambda choice, original=text, cid=chat_id, mid=message_id, sid=logger.session_id, a=action, p=path: (
+                            self._resume_after_confirmation(original, choice, cid, mid, sid, user_id, action=a, path=p)
                         ),
                     )
-                    self.send_message(chat_id, self._confirmations.format_question(action, parts), reply_to_message_id=message_id)
+                    self.send_message(chat_id, self._confirmations.format_question(action, path), reply_to_message_id=message_id)
                     return
 
                 logger.log_turn(
@@ -264,11 +264,19 @@ class TelegramGateway:
         message_id: int,
         logger_session_id: str,
         user_id: str,
+        action: str = "write",
+        path: str = "",
     ) -> None:
         """Resume agent execution after user confirms/denies a file action."""
         if choice == "deny":
             self.send_message(chat_id, "Ação negada pelo usuário.", reply_to_message_id=message_id)
             return
+
+        from pathlib import Path
+        from zeus.tools.file import get_file_permission_manager
+
+        pm = get_file_permission_manager()
+        pm.grant_permission(action, Path(path) if path else None, scope=choice)
 
         # Build instruction based on choice.
         if choice == "once":

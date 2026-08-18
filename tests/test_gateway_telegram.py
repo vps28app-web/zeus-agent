@@ -92,3 +92,33 @@ class TestTelegramGateway:
         assert mock_post.call_count >= 1
         payload = mock_post.call_args.kwargs["json"]
         assert "Demorou muito" in payload["text"]
+
+    @patch("zeus.gateway.telegram._run_agent_with_timeout")
+    @patch("zeus.gateway.telegram.requests.post")
+    def test_handle_update_permission_required(self, mock_post, mock_run_agent):
+        mock_run_agent.return_value = {
+            "permission_required": {"action": "write", "path": "/tmp/test.txt"},
+            "pending_input": "write to /tmp/test.txt",
+        }
+        mock_response = MagicMock()
+        mock_response.raise_for_status.return_value = None
+        mock_response.json.return_value = {"ok": True}
+        mock_post.return_value = mock_response
+
+        gateway = TelegramGateway(token="x", allowed_chat_ids=[123])
+        update = {
+            "update_id": 1,
+            "message": {
+                "message_id": 1,
+                "chat": {"id": 123, "username": "alice"},
+                "text": "write to /tmp/test.txt",
+            },
+        }
+        gateway.handle_update(update)
+        for t in gateway._worker_threads:
+            t.join(timeout=2)
+
+        assert gateway._confirmations.has_pending("telegram", "123")
+        payload = mock_post.call_args.kwargs["json"]
+        assert "Permissão de arquivo necessária: write em '/tmp/test.txt'" in payload["text"]
+

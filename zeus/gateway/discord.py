@@ -106,19 +106,20 @@ class DiscordClient(discord.Client):
                 platform="discord",
             )
 
-            if "Write denied by user" in response or "Delete denied by user" in response:
-                parts = response.replace("Write denied by user for ", "").replace("Delete denied by user for ", "").strip()
-                action = "write" if "Write denied" in response else "delete"
+            if isinstance(response, dict) and response.get("permission_required"):
+                perm = response["permission_required"]
+                action = perm.get("action", "write")
+                path = perm.get("path", "")
                 self._confirmations.request(
                     "discord",
                     platform_user_id,
                     action,
-                    parts,
-                    on_response=lambda choice, original=text, channel=message.channel, sid=logger.session_id, uid=platform_user_id: (
-                        asyncio.create_task(self._resume_after_confirmation(original, choice, channel, sid, uid))
+                    path,
+                    on_response=lambda choice, original=text, channel=message.channel, sid=logger.session_id, uid=platform_user_id, a=action, p=path: (
+                        asyncio.create_task(self._resume_after_confirmation(original, choice, channel, sid, uid, action=a, path=p))
                     ),
                 )
-                await self._send_chunks(message.channel, self._confirmations.format_question(action, parts))
+                await self._send_chunks(message.channel, self._confirmations.format_question(action, path))
                 return
 
             logger.log_turn(
@@ -139,10 +140,18 @@ class DiscordClient(discord.Client):
         channel: discord.abc.Messageable,
         logger_session_id: str,
         user_id: str,
+        action: str = "write",
+        path: str = "",
     ) -> None:
         if choice == "deny":
             await channel.send("Ação negada pelo usuário.")
             return
+
+        from pathlib import Path
+        from zeus.tools.file import get_file_permission_manager
+
+        pm = get_file_permission_manager()
+        pm.grant_permission(action, Path(path) if path else None, scope=choice)
 
         if choice == "once":
             instruction = f"{original_input}\n\n[O usuário permitiu a ação de arquivo desta vez.]"

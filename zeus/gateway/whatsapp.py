@@ -134,19 +134,20 @@ class WhatsAppGateway:
                 platform="whatsapp",
             )
 
-            if "Write denied by user" in response or "Delete denied by user" in response:
-                parts = response.replace("Write denied by user for ", "").replace("Delete denied by user for ", "").strip()
-                action = "write" if "Write denied" in response else "delete"
+            if isinstance(response, dict) and response.get("permission_required"):
+                perm = response["permission_required"]
+                action = perm.get("action", "write")
+                path = perm.get("path", "")
                 self._confirmations.request(
                     "whatsapp",
                     user_id,
                     action,
-                    parts,
-                    on_response=lambda choice, original=text, target=from_jid, sid=logger.session_id: (
-                        self._resume_after_confirmation(original, choice, target, sid, user_id)
+                    path,
+                    on_response=lambda choice, original=text, target=from_jid, sid=logger.session_id, a=action, p=path: (
+                        self._resume_after_confirmation(original, choice, target, sid, user_id, action=a, path=p)
                     ),
                 )
-                self.send_message(from_jid, self._confirmations.format_question(action, parts))
+                self.send_message(from_jid, self._confirmations.format_question(action, path))
                 return
 
             logger.log_turn(
@@ -167,10 +168,18 @@ class WhatsAppGateway:
         target: str,
         logger_session_id: str,
         user_id: str,
+        action: str = "write",
+        path: str = "",
     ) -> None:
         if choice == "deny":
             self.send_message(target, "Ação negada pelo usuário.")
             return
+
+        from pathlib import Path
+        from zeus.tools.file import get_file_permission_manager
+
+        pm = get_file_permission_manager()
+        pm.grant_permission(action, Path(path) if path else None, scope=choice)
 
         if choice == "once":
             instruction = f"{original_input}\n\n[O usuário permitiu a ação de arquivo desta vez.]"
