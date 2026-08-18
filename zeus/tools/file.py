@@ -54,10 +54,14 @@ def write_file(path: str, content: str) -> Dict[str, Any]:
         try:
             _permissions.ensure_write_allowed(file_path)
         except PermissionRequired as e:
+            from zeus.security.audit import get_audit_logger
+            get_audit_logger().log_file_mutation(action="write", path=file_path, allowed=False)
             return {"permission_required": {"action": e.action, "path": str(e.path)}}
     try:
         file_path.parent.mkdir(parents=True, exist_ok=True)
         file_path.write_text(content, encoding="utf-8")
+        from zeus.security.audit import get_audit_logger
+        get_audit_logger().log_file_mutation(action="write", path=file_path, allowed=True)
         return {"path": str(file_path), "bytes_written": len(content)}
     except Exception as e:
         return {"error": str(e)}
@@ -69,10 +73,14 @@ def delete_file(path: str) -> Dict[str, Any]:
         try:
             _permissions.ensure_delete_allowed(file_path)
         except PermissionRequired as e:
+            from zeus.security.audit import get_audit_logger
+            get_audit_logger().log_file_mutation(action="delete", path=file_path, allowed=False)
             return {"permission_required": {"action": e.action, "path": str(e.path)}}
     try:
         if file_path.is_file():
             file_path.unlink()
+            from zeus.security.audit import get_audit_logger
+            get_audit_logger().log_file_mutation(action="delete", path=file_path, allowed=True)
             return {"deleted": True, "path": str(file_path)}
         return {"error": f"Not a file: {path}"}
     except Exception as e:

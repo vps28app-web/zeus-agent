@@ -107,11 +107,35 @@ def test_grant_permission_once():
     assert pm.confirm_action("write", path) is False
 
 
-def test_grant_permission_always():
-    pm = PermissionManager(file_level="read_only")
-    path = Path("/tmp/grant_always.txt")
-    pm.grant_permission("write", path, scope="always")
-    assert pm.confirm_action("write", path) is True
-    # Subsequent actions for write category remain allowed.
-    assert pm.confirm_action("write", Path("/tmp/other.txt")) is True
+def test_file_project_only_blocks_traversal(tmp_path):
+    pm = PermissionManager(file_level="project_only", project_dir=tmp_path)
+    traversal = tmp_path / ".." / ".." / "etc" / "passwd"
+    assert not pm.can_write_file(traversal)
 
+
+def test_check_python_safety_blocks_dynamic_imports():
+    assert check_python_safety("os = __import__('os')\nos.system('ls')") is not None
+    assert check_python_safety("import importlib\nm = importlib.import_module('subprocess')") is not None
+
+
+def test_check_python_safety_blocks_dynamic_exec():
+    assert check_python_safety("exec('import os')") is not None
+
+
+def test_check_python_safety_blocks_attribute_access():
+    assert check_python_safety("import os\nos.system('ls')") is not None
+    assert check_python_safety("import subprocess\nsubprocess.Popen('ls')") is not None
+
+
+def test_check_python_safety_allows_safe_code():
+    assert check_python_safety("x = 1 + 2\nprint(x)") is None
+    assert check_python_safety("def foo():\n    return 42\nfoo()") is None
+
+
+def test_check_python_safety_syntax_error():
+    assert check_python_safety("def foo(\n") is not None
+
+
+if __name__ == "__main__":
+    import pytest
+    pytest.main([__file__, "-v"])

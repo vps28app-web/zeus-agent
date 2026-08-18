@@ -27,10 +27,22 @@ def execute_python(
     The code receives a `inputs` dict serialized to JSON and can print to stdout.
     """
     if not _permissions.can_run_sandboxed_python():
+        from zeus.security.audit import get_audit_logger
+        get_audit_logger().log_execution(
+            tool="execute_python", command=code[:500],
+            result={"error": _permissions.denied_message("execute_python")},
+            allowed=False,
+        )
         return {"error": _permissions.denied_message("execute_python")}
 
     safety = check_python_safety(code, allow_install=_permissions.can_install_packages())
     if safety:
+        from zeus.security.audit import get_audit_logger
+        get_audit_logger().log_execution(
+            tool="execute_python", command=code[:500],
+            result={"error": safety},
+            allowed=False,
+        )
         return {"error": safety}
 
     # Build a wrapper script that deserializes inputs and runs user code
@@ -60,7 +72,10 @@ exec(_user_code, _globals)
         f"python3 -c \"$(echo '{encoded_wrapper}' | base64 -d)\""
     )
 
-    return run_sandboxed_command(shell_command, timeout=timeout)
+    result = run_sandboxed_command(shell_command, timeout=timeout)
+    from zeus.security.audit import get_audit_logger
+    get_audit_logger().log_execution(tool="execute_python", command=code[:500], result=result)
+    return result
 
 
 def execute_shell_script(
@@ -69,15 +84,30 @@ def execute_shell_script(
 ) -> Dict[str, Any]:
     """Execute an arbitrary shell script inside the Go sandbox."""
     if not _permissions.can_run_sandboxed_shell():
+        from zeus.security.audit import get_audit_logger
+        get_audit_logger().log_execution(
+            tool="execute_shell_script", command=script[:500],
+            result={"error": _permissions.denied_message("execute_shell_script")},
+            allowed=False,
+        )
         return {"error": _permissions.denied_message("execute_shell_script")}
 
     safety = check_shell_safety(script)
     if safety:
+        from zeus.security.audit import get_audit_logger
+        get_audit_logger().log_execution(
+            tool="execute_shell_script", command=script[:500],
+            result={"error": safety},
+            allowed=False,
+        )
         return {"error": safety}
 
     encoded_script = base64.b64encode(script.encode("utf-8")).decode("utf-8")
     shell_command = f"echo '{encoded_script}' | base64 -d | bash"
-    return run_sandboxed_command(shell_command, timeout=timeout)
+    result = run_sandboxed_command(shell_command, timeout=timeout)
+    from zeus.security.audit import get_audit_logger
+    get_audit_logger().log_execution(tool="execute_shell_script", command=script[:500], result=result)
+    return result
 
 
 register_tool(

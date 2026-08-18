@@ -15,6 +15,7 @@ Confirmed actions are persisted per session in memory and optionally per user in
 
 import os
 import re
+import threading
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Set
 
@@ -30,7 +31,7 @@ class PermissionRequired(Exception):
 
 
 class PermissionManager:
-    """Centralized execution and file-system permission controls."""
+    """Centralized execution and file-system permission controls (thread-safe)."""
 
     EXEC_LEVELS = ("deny", "sandbox_only", "allow")
     FILE_LEVELS = ("read_only", "project_only", "unrestricted")
@@ -58,6 +59,7 @@ class PermissionManager:
         # In-memory session confirmations.
         self._confirmed_actions: Set[str] = set()
         self._once_confirmed_actions: Set[str] = set()
+        self._lock = threading.Lock()
 
     # ------------------------------------------------------------------
     # Execution permissions
@@ -84,9 +86,21 @@ class PermissionManager:
     # File-system permissions
     # ------------------------------------------------------------------
     def _is_inside_project(self, path: Path) -> bool:
+        """Return True if path is inside project_dir, guarding against traversal and symlinks."""
         try:
-            resolved = path.resolve()
-            return str(resolved).startswith(str(self.project_dir))
+            resolved = path.resolve(strict=False)
+            project = self.project_dir.resolve(strict=False)
+            # Check via commonpath to prevent /project/../../etc/passwd
+            common = Path(os.path.commonpath([resolved, project]))
+            if common != project:
+                return False
+            # If the path exists, also check the real path (symlinks).
+            if resolved.exists():
+                real = resolved.resolve(strict=True)
+                real_common = Path(os.path.commonpath([real, project]))
+                if real_common != project:
+                    return False
+            return True
         except Exception:
             return False
 
@@ -172,12 +186,13 @@ class PermissionManager:
             action_key = f"{action}:*"
         category_key = f"{action}:*"
 
-        if scope in ("always", "persist"):
-            self._confirmed_actions.add(category_key)
-            if scope == "persist":
-                self._save_persistent_confirmation(category_key)
-        else:  # "once"
-            self._once_confirmed_actions.add(action_key)
+        with self._lock:
+            if scope in ("always", "persist"):
+                self._confirmed_actions.add(category_key)
+                if scope == "persist":
+                    self._save_persistent_confirmation(category_key)
+            else:  # "once"
+                self._once_confirmed_actions.add(action_key)
 
     def confirm_action(
         self,
@@ -196,20 +211,22 @@ class PermissionManager:
         action_key = f"{action}:{str(path.resolve())}"
         category_key = f"{action}:*"
 
-        if action_key in self._once_confirmed_actions:
-            self._once_confirmed_actions.remove(action_key)
-            return True
+        with self._lock:
+            if action_key in self._once_confirmed_actions:
+                self._once_confirmed_actions.remove(action_key)
+                return True
 
-        if category_key in self._once_confirmed_actions:
-            self._once_confirmed_actions.remove(category_key)
-            return True
+            if category_key in self._once_confirmed_actions:
+                self._once_confirmed_actions.remove(category_key)
+                return True
 
-        if action_key in self._confirmed_actions or category_key in self._confirmed_actions:
-            return True
+            if action_key in self._confirmed_actions or category_key in self._confirmed_actions:
+                return True
 
         persistent = self._load_persistent_confirmations()
         if action_key in persistent or category_key in persistent:
-            self._confirmed_actions.add(category_key)
+            with self._lock:
+                self._confirmed_actions.add(category_key)
             return True
 
         if self.file_level == "read_only" and action in ("write", "delete"):
@@ -226,10 +243,12 @@ class PermissionManager:
             if isinstance(answer, str):
                 choice = answer.strip().lower()
                 if choice in ("a", "always"):
-                    self._confirmed_actions.add(category_key)
+                    with self._lock:
+                        self._confirmed_actions.add(category_key)
                     return True
                 if choice in ("p", "persist"):
-                    self._confirmed_actions.add(category_key)
+                    with self._lock:
+                        self._confirmed_actions.add(category_key)
                     self._save_persistent_confirmation(category_key)
                     return True
                 if choice in ("n", "no", "negar"):
@@ -275,6 +294,7 @@ DANGEROUS_SHELL_PATTERNS = [
 ]
 
 DANGEROUS_PYTHON_IMPORTS = {
+    "builtins",
     "os",
     "subprocess",
     "sys",
@@ -286,6 +306,7 @@ DANGEROUS_PYTHON_IMPORTS = {
     "telnetlib",
     "pickle",
     "marshal",
+    "importlib",
 }
 
 
@@ -298,19 +319,62 @@ def check_shell_safety(command: str) -> Optional[str]:
 
 
 def check_python_safety(code: str, allow_install: bool = True) -> Optional[str]:
-    """Return an error message if the Python code looks dangerous."""
-    import_pattern = re.compile(r"^\s*import\s+(\S+)", re.MULTILINE)
-    from_pattern = re.compile(r"^\s*from\s+(\S+)\s+import", re.MULTILINE)
+    """Return an error message if the Python code looks dangerous.
 
-    imports = set()
-    for match in import_pattern.finditer(code):
-        imports.add(match.group(1).split(".")[0])
-    for match in from_pattern.finditer(code):
-        imports.add(match.group(1).split(".")[0])
+    Uses AST analysis to catch direct imports, dynamic imports, eval/exec,
+    and attribute access on blocked modules (e.g. import os; os.system).
+    """
+    import ast
 
-    blocked = imports & DANGEROUS_PYTHON_IMPORTS
-    if blocked:
-        return f"Blocked Python imports: {', '.join(sorted(blocked))}"
+    try:
+        tree = ast.parse(code)
+    except SyntaxError as e:
+        return f"Python syntax error: {e}"
+
+    blocked_names = DANGEROUS_PYTHON_IMPORTS.copy()
+    blocked_attrs = {
+        "system", "popen", "spawn", "fork", "execv", "kill", "remove",
+        "unlink", "rmdir", "rename", "replace", "open", "breakpoint",
+    }
+    dynamic_import_funcs = {"__import__", "import_module", "exec_module"}
+    found_imports: Set[str] = set()
+    found_dynamic: Set[str] = set()
+
+    for node in ast.walk(tree):
+        # Direct imports: import X or from X import ...
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                root = alias.name.split(".")[0]
+                if root in blocked_names:
+                    found_imports.add(root)
+        elif isinstance(node, ast.ImportFrom):
+            if node.module:
+                root = node.module.split(".")[0]
+                if root in blocked_names:
+                    found_imports.add(root)
+        # Dynamic imports and dangerous builtins
+        elif isinstance(node, ast.Call):
+            func = node.func
+            if isinstance(func, ast.Name):
+                if func.id in dynamic_import_funcs:
+                    found_dynamic.add(func.id)
+                if func.id in ("exec", "eval", "compile"):
+                    found_dynamic.add(func.id)
+                if func.id == "open":
+                    found_dynamic.add("open")
+            # Attribute calls like os.system, subprocess.Popen
+            elif isinstance(func, ast.Attribute):
+                if func.attr in blocked_attrs:
+                    found_dynamic.add(f"{getattr(func.value, 'id', '?')}.{func.attr}")
+        # Bare exec/eval/compile references
+        elif isinstance(node, ast.Name):
+            if node.id in ("exec", "eval", "compile"):
+                found_dynamic.add(node.id)
+
+    if found_imports:
+        return f"Blocked Python imports: {', '.join(sorted(found_imports))}"
+    if found_dynamic:
+        return f"Blocked Python operations: {', '.join(sorted(found_dynamic))}"
 
     if not allow_install and re.search(r"\b(pip|conda)\b", code):
         return "Package installation is not allowed at this permission level."
