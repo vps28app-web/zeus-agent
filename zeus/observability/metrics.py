@@ -99,13 +99,18 @@ class MetricsCollector:
 
 _GLOBAL: Optional[MetricsCollector] = None
 _GLOBAL_LOCK = threading.Lock()
+_METRICS_CACHE: Dict[str, MetricsCollector] = {}
 
 
 def get_metrics(session_id: Optional[str] = None) -> MetricsCollector:
     global _GLOBAL
-    if session_id:
-        return MetricsCollector(session_id)
+    if not session_id or session_id == "global":
+        with _GLOBAL_LOCK:
+            if _GLOBAL is None:
+                _GLOBAL = MetricsCollector("global")
+            return _GLOBAL
+
     with _GLOBAL_LOCK:
-        if _GLOBAL is None:
-            _GLOBAL = MetricsCollector("global")
-        return _GLOBAL
+        if session_id not in _METRICS_CACHE:
+            _METRICS_CACHE[session_id] = MetricsCollector(session_id)
+        return _METRICS_CACHE[session_id]
