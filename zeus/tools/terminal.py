@@ -5,13 +5,24 @@ from typing import Any, Dict
 
 from zeus.core.registry import register_tool
 from zeus.security.permissions import PermissionManager, check_shell_safety
+from zeus.tools.sandbox_client import safe_environment
 
 
 _permissions = PermissionManager()
 
 
 def run_terminal(command: str, timeout: int = 60) -> Dict[str, Any]:
-    """Run a shell command and return stdout, stderr, and exit code."""
+    """Run a shell command directly on the host and return stdout, stderr, and exit code.
+
+    WARNING: This bypasses the Go sandbox. It requires ZEUS_EXECUTION_PERMISSION=allow.
+    Use run_sandboxed or execute_shell_script for isolated execution.
+    """
+    from zeus.security.rate_limit import get_execution_limiter
+
+    limiter = get_execution_limiter()
+    if not limiter.is_allowed("run_terminal"):
+        return {"error": "Rate limit exceeded for run_terminal. Try again later."}
+
     if not _permissions.can_run_terminal():
         from zeus.security.audit import get_audit_logger
         get_audit_logger().log_execution(
@@ -38,6 +49,7 @@ def run_terminal(command: str, timeout: int = 60) -> Dict[str, Any]:
         text=True,
         timeout=timeout,
         cwd=None,
+        env=safe_environment(),
     )
     output = {
         "command": command,
@@ -52,7 +64,7 @@ def run_terminal(command: str, timeout: int = 60) -> Dict[str, Any]:
 
 register_tool(
     name="run_terminal",
-    description="Execute a shell command and return the output.",
+    description="Execute a shell command directly on the host (requires ZEUS_EXECUTION_PERMISSION=allow; bypasses sandbox).",
     parameters={
         "type": "object",
         "properties": {

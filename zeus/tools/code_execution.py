@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 
 from zeus.core.registry import register_tool
 from zeus.security.permissions import PermissionManager, check_python_safety, check_shell_safety
-from zeus.tools.sandbox_client import run_sandboxed_command
+from zeus.tools.sandbox_client import run_sandboxed_command, safe_environment
 
 
 _permissions = PermissionManager()
@@ -26,6 +26,12 @@ def execute_python(
 
     The code receives a `inputs` dict serialized to JSON and can print to stdout.
     """
+    from zeus.security.rate_limit import get_execution_limiter
+
+    limiter = get_execution_limiter()
+    if not limiter.is_allowed("execute_python"):
+        return {"error": "Rate limit exceeded for execute_python. Try again later."}
+
     if not _permissions.can_run_sandboxed_python():
         from zeus.security.audit import get_audit_logger
         get_audit_logger().log_execution(
@@ -72,7 +78,7 @@ exec(_user_code, _globals)
         f"python3 -c \"$(echo '{encoded_wrapper}' | base64 -d)\""
     )
 
-    result = run_sandboxed_command(shell_command, timeout=timeout)
+    result = run_sandboxed_command(shell_command, timeout=timeout, env=safe_environment())
     from zeus.security.audit import get_audit_logger
     get_audit_logger().log_execution(tool="execute_python", command=code[:500], result=result)
     return result
@@ -83,6 +89,12 @@ def execute_shell_script(
     timeout: int = 30,
 ) -> Dict[str, Any]:
     """Execute an arbitrary shell script inside the Go sandbox."""
+    from zeus.security.rate_limit import get_execution_limiter
+
+    limiter = get_execution_limiter()
+    if not limiter.is_allowed("execute_shell_script"):
+        return {"error": "Rate limit exceeded for execute_shell_script. Try again later."}
+
     if not _permissions.can_run_sandboxed_shell():
         from zeus.security.audit import get_audit_logger
         get_audit_logger().log_execution(
@@ -104,7 +116,7 @@ def execute_shell_script(
 
     encoded_script = base64.b64encode(script.encode("utf-8")).decode("utf-8")
     shell_command = f"echo '{encoded_script}' | base64 -d | bash"
-    result = run_sandboxed_command(shell_command, timeout=timeout)
+    result = run_sandboxed_command(shell_command, timeout=timeout, env=safe_environment())
     from zeus.security.audit import get_audit_logger
     get_audit_logger().log_execution(tool="execute_shell_script", command=script[:500], result=result)
     return result

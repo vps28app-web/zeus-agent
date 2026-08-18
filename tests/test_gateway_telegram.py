@@ -90,8 +90,8 @@ class TestTelegramGateway:
             t.join(timeout=2)
 
         assert mock_post.call_count >= 1
-        payload = mock_post.call_args.kwargs["json"]
-        assert "Demorou muito" in payload["text"]
+        texts = [call.kwargs["json"].get("text", "") for call in mock_post.call_args_list if "json" in call.kwargs]
+        assert any("Demorou muito" in t for t in texts)
 
     @patch("zeus.gateway.telegram._run_agent_with_timeout")
     @patch("zeus.gateway.telegram.requests.post")

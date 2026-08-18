@@ -8,6 +8,12 @@ from zeus.tools.sandbox_client import run_sandboxed_command
 
 def run_sandboxed(command: str, timeout: int = 30) -> Dict[str, Any]:
     """Execute a command inside the sandboxed runtime."""
+    from zeus.security.rate_limit import get_execution_limiter
+
+    limiter = get_execution_limiter()
+    if not limiter.is_allowed("run_sandboxed"):
+        return {"error": "Rate limit exceeded for run_sandboxed. Try again later."}
+
     result = run_sandboxed_command(command, timeout=timeout)
     from zeus.security.audit import get_audit_logger
     get_audit_logger().log_execution(tool="run_sandboxed", command=command, result=result)

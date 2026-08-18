@@ -133,6 +133,24 @@ class PermissionManager:
             return self.confirm_callback(message)
         return False
 
+    def _normalize_confirmation_answer(self, answer) -> Optional[str]:
+        """Normalize callback answer into one of 'once', 'always', 'persist', 'deny' or None."""
+        if answer is True or answer == "y" or (isinstance(answer, str) and answer.strip().lower() in ("y", "yes", "sim")):
+            return "once"
+        if isinstance(answer, str):
+            choice = answer.strip().lower()
+            if choice in ("y", "yes", "sim"):
+                return "once"
+            if choice in ("a", "always", "sempre"):
+                return "always"
+            if choice in ("p", "persist", "persistir"):
+                return "persist"
+            if choice in ("n", "no", "nao", "não", "negar"):
+                return "deny"
+        if answer is False:
+            return "deny"
+        return None
+
     def _load_persistent_confirmations(self) -> Set[str]:
         """Load persisted confirmations from SQLite for this user."""
         try:
@@ -235,24 +253,19 @@ class PermissionManager:
                 f"Options: (y) yes, once  |  (a) yes, always this session  |  (p) yes, persist  |  (n) no"
             )
             answer = self._confirm(message)
-            if not answer:
+            choice = self._normalize_confirmation_answer(answer)
+            if choice == "deny" or choice is None:
                 return False
-
-            # The callback is expected to return a string answer from the user.
-            # If it returned a boolean True, treat as "once".
-            if isinstance(answer, str):
-                choice = answer.strip().lower()
-                if choice in ("a", "always"):
-                    with self._lock:
-                        self._confirmed_actions.add(category_key)
-                    return True
-                if choice in ("p", "persist"):
-                    with self._lock:
-                        self._confirmed_actions.add(category_key)
-                    self._save_persistent_confirmation(category_key)
-                    return True
-                if choice in ("n", "no", "negar"):
-                    return False
+            if choice == "always":
+                with self._lock:
+                    self._confirmed_actions.add(category_key)
+                return True
+            if choice == "persist":
+                with self._lock:
+                    self._confirmed_actions.add(category_key)
+                self._save_persistent_confirmation(category_key)
+                return True
+            # "once" or legacy truthy answer
             return True
 
         return False
