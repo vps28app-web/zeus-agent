@@ -19,6 +19,16 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional, Set
 
 
+class PermissionRequired(Exception):
+    """Raised when a file action requires explicit user confirmation."""
+
+    def __init__(self, action: str, path: Path, message: str):
+        self.action = action
+        self.path = path
+        self.message = message
+        super().__init__(message)
+
+
 class PermissionManager:
     """Centralized execution and file-system permission controls."""
 
@@ -47,6 +57,7 @@ class PermissionManager:
 
         # In-memory session confirmations.
         self._confirmed_actions: Set[str] = set()
+        self._once_confirmed_actions: Set[str] = set()
 
     # ------------------------------------------------------------------
     # Execution permissions
@@ -141,6 +152,33 @@ class PermissionManager:
         except Exception:
             pass
 
+    def grant_permission(
+        self,
+        action: str,
+        path: Optional[Path] = None,
+        scope: str = "once",
+    ) -> None:
+        """
+        Grant permission for a file action.
+
+        scope:
+          - "once": allow once for this action and path
+          - "always": remember for this session
+          - "persist": remember across sessions (per user)
+        """
+        if path:
+            action_key = f"{action}:{str(Path(path).resolve())}"
+        else:
+            action_key = f"{action}:*"
+        category_key = f"{action}:*"
+
+        if scope in ("always", "persist"):
+            self._confirmed_actions.add(category_key)
+            if scope == "persist":
+                self._save_persistent_confirmation(category_key)
+        else:  # "once"
+            self._once_confirmed_actions.add(action_key)
+
     def confirm_action(
         self,
         action: str,
@@ -157,6 +195,14 @@ class PermissionManager:
         """
         action_key = f"{action}:{str(path.resolve())}"
         category_key = f"{action}:*"
+
+        if action_key in self._once_confirmed_actions:
+            self._once_confirmed_actions.remove(action_key)
+            return True
+
+        if category_key in self._once_confirmed_actions:
+            self._once_confirmed_actions.remove(category_key)
+            return True
 
         if action_key in self._confirmed_actions or category_key in self._confirmed_actions:
             return True
@@ -186,9 +232,35 @@ class PermissionManager:
                     self._confirmed_actions.add(category_key)
                     self._save_persistent_confirmation(category_key)
                     return True
+                if choice in ("n", "no", "negar"):
+                    return False
             return True
 
         return False
+
+    def ensure_write_allowed(self, path: Path) -> None:
+        """Raise PermissionRequired if write is not explicitly allowed."""
+        if self.can_write_file(path):
+            return
+        if self.confirm_action("write", path):
+            return
+        raise PermissionRequired(
+            action="write",
+            path=path,
+            message=f"Write permission required for {path}",
+        )
+
+    def ensure_delete_allowed(self, path: Path) -> None:
+        """Raise PermissionRequired if delete is not explicitly allowed."""
+        if self.can_delete_file(path):
+            return
+        if self.confirm_action("delete", path):
+            return
+        raise PermissionRequired(
+            action="delete",
+            path=path,
+            message=f"Delete permission required for {path}",
+        )
 
 
 # Dangerous shell command patterns (case-insensitive).

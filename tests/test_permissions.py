@@ -94,3 +94,24 @@ def test_confirm_action_always_session():
 def test_check_python_safety_blocks_install_when_disabled():
     assert check_python_safety("import pip\npip.install('x')", allow_install=False) is not None
     assert check_python_safety("print('ok')", allow_install=False) is None
+
+
+def test_grant_permission_once():
+    pm = PermissionManager(file_level="read_only")
+    path = Path("/tmp/grant_once.txt")
+    assert not pm.can_write_file(path)
+    pm.grant_permission("write", path, scope="once")
+    # First confirm_action should succeed and consume the one-time permission.
+    assert pm.confirm_action("write", path) is True
+    # Second confirm_action without callback should return False.
+    assert pm.confirm_action("write", path) is False
+
+
+def test_grant_permission_always():
+    pm = PermissionManager(file_level="read_only")
+    path = Path("/tmp/grant_always.txt")
+    pm.grant_permission("write", path, scope="always")
+    assert pm.confirm_action("write", path) is True
+    # Subsequent actions for write category remain allowed.
+    assert pm.confirm_action("write", Path("/tmp/other.txt")) is True
+

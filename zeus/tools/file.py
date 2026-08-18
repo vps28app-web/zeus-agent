@@ -5,16 +5,22 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from zeus.core.registry import register_tool
-from zeus.security.permissions import PermissionManager
+from zeus.security.permissions import PermissionManager, PermissionRequired
 
 
 # Default permission manager. CLI/gateways can inject one with a callback.
 _permissions = PermissionManager()
 
 
-def _confirm_prompt(message: str) -> Any:
-    """Default confirmation: deny in non-interactive contexts."""
-    return False
+def set_file_permission_manager(pm: PermissionManager) -> None:
+    """Allow CLI/gateway to inject a configured PermissionManager."""
+    global _permissions
+    _permissions = pm
+
+
+def get_file_permission_manager() -> PermissionManager:
+    """Get the active PermissionManager instance."""
+    return _permissions
 
 
 def set_file_permission_callback(callback):
@@ -45,8 +51,10 @@ def read_file(path: str, limit: int = 2000, offset: int = 1) -> Dict[str, Any]:
 def write_file(path: str, content: str) -> Dict[str, Any]:
     file_path = Path(path).expanduser().resolve()
     if not _permissions.can_write_file(file_path):
-        if not _permissions.confirm_action("write", file_path):
-            return {"error": f"Write denied by user for {path}"}
+        try:
+            _permissions.ensure_write_allowed(file_path)
+        except PermissionRequired as e:
+            return {"permission_required": {"action": e.action, "path": str(e.path)}}
     try:
         file_path.parent.mkdir(parents=True, exist_ok=True)
         file_path.write_text(content, encoding="utf-8")
@@ -58,8 +66,10 @@ def write_file(path: str, content: str) -> Dict[str, Any]:
 def delete_file(path: str) -> Dict[str, Any]:
     file_path = Path(path).expanduser().resolve()
     if not _permissions.can_delete_file(file_path):
-        if not _permissions.confirm_action("delete", file_path):
-            return {"error": f"Delete denied by user for {path}"}
+        try:
+            _permissions.ensure_delete_allowed(file_path)
+        except PermissionRequired as e:
+            return {"permission_required": {"action": e.action, "path": str(e.path)}}
     try:
         if file_path.is_file():
             file_path.unlink()
