@@ -1,7 +1,7 @@
 """Tool registry: register and resolve tools available to the agent."""
 
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Set
 
 
 @dataclass
@@ -11,6 +11,7 @@ class Tool:
     parameters: Dict[str, Any]
     handler: Callable[..., Any]
     required_env: List[str] = field(default_factory=list)
+    tags: List[str] = field(default_factory=list)
 
 
 class ToolRegistry:
@@ -28,6 +29,12 @@ class ToolRegistry:
     def list_tools(self) -> List[Tool]:
         return list(self._tools.values())
 
+    def list_tags(self) -> List[str]:
+        tags: Set[str] = set()
+        for tool in self._tools.values():
+            tags.update(tool.tags)
+        return sorted(tags)
+
     def is_available(self, name: str) -> bool:
         tool = self._tools.get(name)
         if not tool:
@@ -36,7 +43,7 @@ class ToolRegistry:
 
         return all(os.getenv(env) for env in tool.required_env)
 
-    def schemas(self) -> List[Dict[str, Any]]:
+    def schemas(self, tag_allowlist: Optional[set] = None) -> List[Dict[str, Any]]:
         return [
             {
                 "type": "function",
@@ -48,6 +55,7 @@ class ToolRegistry:
             }
             for tool in self._tools.values()
             if self.is_available(tool.name)
+            and (tag_allowlist is None or any(tag in tag_allowlist for tag in tool.tags))
         ]
 
 
@@ -60,6 +68,7 @@ def register_tool(
     parameters: Dict[str, Any],
     handler: Callable[..., Any],
     required_env: Optional[List[str]] = None,
+    tags: Optional[List[str]] = None,
 ) -> Tool:
     tool = Tool(
         name=name,
@@ -67,6 +76,7 @@ def register_tool(
         parameters=parameters,
         handler=handler,
         required_env=required_env or [],
+        tags=tags or [],
     )
     REGISTRY.register(tool)
     return tool

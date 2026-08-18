@@ -23,4 +23,5 @@ register_tool(
         "required": ["command"],
     },
     handler=run_sandboxed,
+    tags=["sandbox", "execute"],
 )

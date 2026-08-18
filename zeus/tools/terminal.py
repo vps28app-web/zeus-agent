@@ -47,4 +47,5 @@ register_tool(
         "required": ["command"],
     },
     handler=run_terminal,
+    tags=["terminal", "execute"],
 )

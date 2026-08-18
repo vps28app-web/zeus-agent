@@ -135,6 +135,7 @@ register_tool(
         "required": ["path"],
     },
     handler=read_file,
+    tags=["file", "read"],
 )
 
 register_tool(
@@ -149,6 +150,7 @@ register_tool(
         "required": ["path", "content"],
     },
     handler=write_file,
+    tags=["file", "write"],
 )
 
 register_tool(
@@ -160,6 +162,7 @@ register_tool(
         "required": ["path"],
     },
     handler=delete_file,
+    tags=["file", "delete"],
 )
 
 register_tool(
@@ -171,6 +174,7 @@ register_tool(
         "required": [],
     },
     handler=list_directory,
+    tags=["file", "read"],
 )
 
 register_tool(
@@ -185,4 +189,5 @@ register_tool(
         "required": ["pattern"],
     },
     handler=search_files,
+    tags=["file", "read"],
 )

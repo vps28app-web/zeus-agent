@@ -122,6 +122,7 @@ register_tool(
         "required": [],
     },
     handler=git_status,
+    tags=["git", "read"],
 )
 
 register_tool(
@@ -137,6 +138,7 @@ register_tool(
         "required": [],
     },
     handler=git_log,
+    tags=["git", "read"],
 )
 
 register_tool(
@@ -152,6 +154,7 @@ register_tool(
         "required": [],
     },
     handler=git_diff,
+    tags=["git", "read"],
 )
 
 register_tool(
@@ -166,6 +169,7 @@ register_tool(
         "required": [],
     },
     handler=git_branch,
+    tags=["git", "read"],
 )
 
 register_tool(
@@ -180,6 +184,7 @@ register_tool(
         "required": ["branch"],
     },
     handler=git_checkout,
+    tags=["git", "write"],
 )
 
 register_tool(
@@ -195,6 +200,7 @@ register_tool(
         "required": [],
     },
     handler=git_pull,
+    tags=["git", "write"],
 )
 
 register_tool(
@@ -210,6 +216,7 @@ register_tool(
         "required": [],
     },
     handler=git_push,
+    tags=["git", "write"],
 )
 
 register_tool(
@@ -225,6 +232,7 @@ register_tool(
         "required": ["message"],
     },
     handler=git_commit,
+    tags=["git", "write"],
 )
 
 register_tool(
@@ -240,4 +248,5 @@ register_tool(
         "required": ["repo_url"],
     },
     handler=git_clone,
+    tags=["git", "write"],
 )

@@ -206,10 +206,11 @@ def run_agent(
     stream_callback=None,
     tool_callback=None,
     enable_reasoning_memory: bool = True,
+    tool_filter: Optional[set] = None,
 ) -> Any:
     metrics = get_metrics(session_id)
     tracer = get_tracer(session_id)
-    tracer.start_span("run_agent", {"user_input": user_input})
+    tracer.start_span("run_agent", {"user_input": user_input, "tool_filter": sorted(tool_filter) if tool_filter else None})
 
     from zeus.security.guardrails import GuardrailsManager, GuardrailViolation
     guardrails = GuardrailsManager()
@@ -258,7 +259,7 @@ def run_agent(
             from zeus.memory.context import prune_messages
             active_messages = prune_messages(messages)
 
-            tools = REGISTRY.schemas()
+            tools = REGISTRY.schemas(tag_allowlist=tool_filter)
             llm_start = time.time()
             llm_span = tracer.start_span("llm_call", {"turn": turn, "provider": provider, "model": model})
             try:
@@ -419,6 +420,7 @@ def run_agent(
 
     tracer.finish_span(status="error", attributes={"reason": "max_turns_reached"})
     return "Maximum turns reached."
+
 
 def run_summary(session_id: Optional[str] = None) -> str:
     """Return a human-readable summary of the session."""

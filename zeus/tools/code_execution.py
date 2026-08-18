@@ -94,6 +94,7 @@ register_tool(
         "required": ["code"],
     },
     handler=execute_python,
+    tags=["code", "execute"],
 )
 
 register_tool(
@@ -108,4 +109,5 @@ register_tool(
         "required": ["script"],
     },
     handler=execute_shell_script,
+    tags=["code", "execute"],
 )

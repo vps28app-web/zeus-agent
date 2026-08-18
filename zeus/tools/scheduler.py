@@ -99,6 +99,7 @@ register_tool(
         "required": ["command", "schedule"],
     },
     handler=schedule_task,
+    tags=["scheduler", "write"],
 )
 
 register_tool(
@@ -106,6 +107,7 @@ register_tool(
     description="List all scheduled tasks with their cron schedules and next run times.",
     parameters={"type": "object", "properties": {}},
     handler=list_scheduled,
+    tags=["scheduler", "read"],
 )
 
 register_tool(
@@ -119,4 +121,5 @@ register_tool(
         "required": ["task_id"],
     },
     handler=cancel_task,
+    tags=["scheduler", "delete"],
 )

@@ -47,4 +47,5 @@ register_tool(
         "required": ["query"],
     },
     handler=query_database,
+    tags=["database", "read"],
 )

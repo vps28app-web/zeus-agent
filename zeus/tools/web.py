@@ -47,6 +47,7 @@ register_tool(
     },
     handler=web_search,
     required_env=["SERPER_API_KEY"],
+    tags=["web", "research"],
 )
 
 register_tool(
@@ -61,4 +62,5 @@ register_tool(
         "required": ["url"],
     },
     handler=web_extract,
+    tags=["web", "research"],
 )

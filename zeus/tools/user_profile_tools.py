@@ -67,6 +67,7 @@ register_tool(
         "required": ["fact"],
     },
     handler=remember_user,
+    tags=["memory", "user", "write"],
 )
 
 register_tool(
@@ -82,4 +83,5 @@ register_tool(
         },
     },
     handler=recall_user,
+    tags=["memory", "user", "read"],
 )

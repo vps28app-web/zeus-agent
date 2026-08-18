@@ -46,6 +46,7 @@ register_tool(
         "required": ["note"],
     },
     handler=remember,
+    tags=["memory", "write"],
 )
 
 register_tool(
@@ -57,6 +58,7 @@ register_tool(
         "required": [],
     },
     handler=recall,
+    tags=["memory", "read"],
 )
 
 register_tool(
@@ -68,6 +70,7 @@ register_tool(
         "required": ["query"],
     },
     handler=search_memory,
+    tags=["memory", "read"],
 )
 
 register_tool(
@@ -75,6 +78,7 @@ register_tool(
     description="List all memory keys and note counts.",
     parameters={"type": "object", "properties": {}},
     handler=list_memories,
+    tags=["memory", "read"],
 )
 
 register_tool(
@@ -86,4 +90,5 @@ register_tool(
         "required": ["key"],
     },
     handler=forget_memory,
+    tags=["memory", "delete"],
 )

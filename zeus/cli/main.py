@@ -25,6 +25,7 @@ class ZeusCommandCompleter(Completer):
         "/reset": "Reseta a sessão atual (mantém ID, zera métricas)",
         "/clear": "Limpa a tela",
         "/summary": "Mostra resumo da sessão",
+        "/skills": "Seleciona um skill set/persona para filtrar ferramentas",
         "/models": "Troca o modelo/provedor LLM",
         "/plan": "Cria e executa um plano passo a passo",
         "/team": "Executa com equipe multi-agente",
@@ -32,10 +33,24 @@ class ZeusCommandCompleter(Completer):
         "/help": "Mostra a ajuda de comandos",
     }
 
+    SKILL_SETS = ["coding", "security", "research", "memory", "all"]
+
     def get_completions(self, document, complete_event):
         text = document.text_before_cursor
         if text.startswith("/"):
-            query = text.split()[0] if text.split() else text
+            parts = text.split()
+            query = parts[0] if parts else text
+            # complete skill set names after /skills
+            if query == "/skills" and len(parts) <= 2:
+                prefix = parts[1] if len(parts) == 2 else ""
+                for name in self.SKILL_SETS:
+                    if name.startswith(prefix):
+                        yield Completion(
+                            name,
+                            start_position=-len(prefix),
+                            display=name,
+                        )
+                return
             for cmd, desc in self.COMMANDS.items():
                 if cmd.startswith(query):
                     yield Completion(
@@ -45,8 +60,73 @@ class ZeusCommandCompleter(Completer):
                         display_meta=desc,
                     )
 
+SKILL_SETS: Dict[str, Dict[str, Any]] = {
+    "coding": {
+        "label": "💻 Coding",
+        "description": "Ferramentas para desenvolvimento: terminal, arquivo, git, execução de código.",
+        "tags": {"terminal", "file", "git", "code", "sandbox", "execute"},
+    },
+    "security": {
+        "label": "🔒 Security",
+        "description": "Acesso restrito: leitura de arquivos, memória e database; sem escrita.",
+        "tags": {"file", "read", "memory", "database"},
+    },
+    "research": {
+        "label": "🔍 Research",
+        "description": "Ferramentas de pesquisa: web, browser e leitura de arquivos.",
+        "tags": {"web", "research", "browser", "file", "read"},
+    },
+    "memory": {
+        "label": "🧠 Memory",
+        "description": "Gerenciamento de memória e perfil do usuário.",
+        "tags": {"memory", "user", "database", "read"},
+    },
+    "all": {
+        "label": "🌎 All",
+        "description": "Todas as ferramentas disponíveis (padrão).",
+        "tags": None,
+    },
+}
+
+
+def _current_skill_label(active_filter: Optional[set]) -> str:
+    if not active_filter:
+        return "all"
+    for key, cfg in SKILL_SETS.items():
+        if cfg["tags"] == active_filter:
+            return key
+    return "custom"
+
+
+def _print_skills_menu(active_filter: Optional[set]) -> None:
+    """Print a visual menu of available skill sets."""
+    term_width = _get_term_width()
+    title = " 🧛 SKILL SETS "
+    line_length = max(10, term_width - len(title) - 6)
+    top = _color("╭──", 33) + _color(title, "1;33") + _color("─" * line_length, 33)
+    bottom = _color("╰" + "─" * (term_width - 3), 33)
+
+    current = _current_skill_label(active_filter)
+
+    print()
+    print(top)
+    print(f"{_color('│', 33)}  {_color('Ativo:', 90)} {SKILL_SETS[current]['label'] if current in SKILL_SETS else current}")
+    print(f"{_color('│', 33)}")
+    max_key = max(len(key) for key in SKILL_SETS)
+    for key, cfg in SKILL_SETS.items():
+        marker = _color("●", 32) if key == current else " "
+        pad = " " * (max_key - len(key))
+        tags = "todas" if cfg["tags"] is None else ", ".join(sorted(cfg["tags"]))
+        print(f"{_color('│', 33)}  {marker} {_color('/skills ' + key, '1;33')}{pad}  {cfg['label']} {_color('[' + tags + ']', 90)}")
+    print(f"{_color('│', 33)}")
+    print(f"{_color('│', 33)}  {_color('Uso:', 90)} /skills <nome>  ou  /skills para este menu")
+    print(bottom)
+    print()
+
+
 from zeus.core.agent import run_agent, run_summary
 from zeus.core.planner import generate_plan, execute_plan_step
+from zeus.core.registry import REGISTRY
 from zeus.core.team import create_default_team, Team, Worker
 from zeus.memory.session_log import get_logger
 from zeus.observability import get_metrics
@@ -134,7 +214,7 @@ def _print_banner(logger, metrics) -> None:
         f"  {_color('Session:', 90)}  {logger.session_id[:12]}",
         f"  {_color('Uptime:', 90)}   {duration}",
         "",
-        f"  {_color('Comandos:', 90)} /new  /reset  /clear  /models  /summary  /help  /exit",
+        f"  {_color('Comandos:', 90)} /new  /reset  /clear  /skills  /models  /summary  /help  /exit",
     ]
 
     inner_width = max(60, min(_get_term_width() - 4, 120))
@@ -275,7 +355,7 @@ def _print_tool_execution(name: Optional[str], args: Any) -> None:
     print(f"  {_color('⚡ Executando:', 35)} {_color(tool_name, '1;35')}({_color(args_str, 90)})")
 
 
-def _build_prompt(logger, metrics) -> str:
+def _build_prompt(logger, metrics, active_skill: Optional[set] = None) -> str:
     term_width = _get_term_width()
     model = os.getenv("ZEUS_MODEL", "unknown")
     snap = metrics.snapshot()
@@ -283,8 +363,9 @@ def _build_prompt(logger, metrics) -> str:
     out_tokens = snap.get("llm_output_tokens", 0)
     duration = _format_duration(time.time() - snap.get("started_at", time.time()))
     session_short = logger.session_id[:8]
+    skill_label = _current_skill_label(active_skill)
 
-    title = f" 👤 VOCÊ | {model} | in:{in_tokens} out:{out_tokens} | {duration} | {session_short} "
+    title = f" 👤 VOCÊ | {model} | in:{in_tokens} out:{out_tokens} | {duration} | {session_short} | {skill_label} "
     remaining = max(5, term_width - len(title) - 6)
 
     top = _color("╭──", 33) + _color(title, "1;33") + _color("─" * remaining, 33)
@@ -340,9 +421,10 @@ def main() -> None:
         completer=ZeusCommandCompleter(),
     )
     _print_banner(logger, metrics)
+    active_skill: Optional[set] = None
 
     while True:
-        prompt_text = _build_prompt(logger, get_metrics(logger.session_id))
+        prompt_text = _build_prompt(logger, get_metrics(logger.session_id), active_skill)
         try:
             user_input = session.prompt(ANSI(prompt_text))
         except KeyboardInterrupt:
@@ -361,12 +443,14 @@ def main() -> None:
         if text == "/new":
             logger = get_logger(new_session=True)
             metrics = get_metrics(logger.session_id)
+            active_skill = None
             print(f"\n{_color('✨ Nova sessão criada:', 32)} {logger.session_id}\n")
             continue
         if text == "/reset":
             old_session = logger.session_id
             logger = get_logger(old_session)
             metrics = get_metrics(old_session)
+            active_skill = None
             print(f"\n{_color('🔄 Sessão resetada:', 33)} {logger.session_id}\n")
             continue
         if text == "/clear":
@@ -378,6 +462,23 @@ def main() -> None:
             continue
         if text in ("/", "/help", "/?"):
             _print_command_menu()
+            continue
+
+        if text == "/skills":
+            _print_skills_menu(active_skill)
+            continue
+
+        if text.startswith("/skills "):
+            skill_name = text[len("/skills "):].strip()
+            if skill_name not in SKILL_SETS:
+                print(f"\n{_color('❌ Skill set desconhecido:', '1;31')} {skill_name}")
+                print(f"{_color('Use:', 90)} /skills coding | security | research | memory | all\n")
+                continue
+            active_skill = SKILL_SETS[skill_name]["tags"]
+            label = SKILL_SETS[skill_name]["label"]
+            print(f"\n{_color('🔧 Skill set ativado:', 32)} {label}")
+            count = len(REGISTRY.schemas(tag_allowlist=active_skill))
+            print(f"{_color('Ferramentas disponíveis:', 90)} {count}\n")
             continue
 
         if text == "/models":
@@ -446,7 +547,7 @@ def main() -> None:
         logger.log_turn("user", text)
         _print_user_closing()
         try:
-            response = run_agent(text, session_id=logger.session_id, tool_callback=_print_tool_execution)
+            response = run_agent(text, session_id=logger.session_id, tool_callback=_print_tool_execution, tool_filter=active_skill)
             if isinstance(response, dict) and response.get("permission_required"):
                 perm = response["permission_required"]
                 resp_text = f"Permissão necessária: {perm.get('action')} em '{perm.get('path')}'."

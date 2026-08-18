@@ -297,6 +297,7 @@ register_tool(
         "required": ["url"],
     },
     handler=browser_navigate,
+    tags=["browser", "web"],
 )
 
 register_tool(
@@ -312,6 +313,7 @@ register_tool(
         "required": ["url"],
     },
     handler=browser_extract,
+    tags=["browser", "web"],
 )
 
 register_tool(
@@ -327,6 +329,7 @@ register_tool(
         "required": ["url", "selector"],
     },
     handler=browser_click,
+    tags=["browser", "web"],
 )
 
 register_tool(
@@ -342,4 +345,5 @@ register_tool(
         "required": ["url", "expression"],
     },
     handler=browser_evaluate,
+    tags=["browser", "web"],
 )
