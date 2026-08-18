@@ -119,6 +119,14 @@ def execute_tool_call(call: Dict[str, Any], metrics, tracer) -> Dict[str, Any]:
         metrics.record_tool_call(name or "unknown", 0, error=True, result_summary="Tool not found")
         return {"error": f"Tool not found: {name}"}
 
+    # Validate tool call against Guardrails rules before execution
+    from zeus.security.guardrails import GuardrailsManager
+    guardrails = GuardrailsManager()
+    block_res = guardrails.validate_tool_call(name or "", arguments if isinstance(arguments, dict) else {})
+    if block_res:
+        metrics.record_tool_call(name or "unknown", 0, error=True, result_summary=str(block_res))
+        return {"tool": name, "result": block_res}
+
     span = tracer.start_span("tool_call", {"tool": name, "arguments": arguments})
     start = time.time()
     try:
@@ -198,10 +206,18 @@ def run_agent(
     stream_callback=None,
     tool_callback=None,
     enable_reasoning_memory: bool = True,
-) -> str:
+) -> Any:
     metrics = get_metrics(session_id)
     tracer = get_tracer(session_id)
     tracer.start_span("run_agent", {"user_input": user_input})
+
+    from zeus.security.guardrails import GuardrailsManager, GuardrailViolation
+    guardrails = GuardrailsManager()
+    try:
+        user_input = guardrails.validate_input(user_input)
+    except GuardrailViolation as gv:
+        tracer.finish_span(status="error", attributes={"guardrail_violation": gv.rule})
+        return f"Guardrail Blocked: {gv.message}"
 
     from zeus.memory.store import MemoryStore
     from zeus.memory.user_profile import UserProfileStore
@@ -235,110 +251,174 @@ def run_agent(
     model = None
     last_reasoning = ""
     final_response = ""
+    tool_call_history: List[str] = []
 
-    for turn in range(max_turns):
-        from zeus.memory.context import prune_messages
-        active_messages = prune_messages(messages)
+    try:
+        for turn in range(max_turns):
+            from zeus.memory.context import prune_messages
+            active_messages = prune_messages(messages)
 
-        tools = REGISTRY.schemas()
-        llm_start = time.time()
-        llm_span = tracer.start_span("llm_call", {"turn": turn, "provider": provider, "model": model})
-        try:
-            response = chat(active_messages, tools, stream=stream, stream_callback=stream_callback)
-            llm_latency_ms = (time.time() - llm_start) * 1000
-            usage = response.get("usage", {})
-            input_tokens = usage.get("prompt_tokens", 0) or usage.get("input_tokens", 0)
-            output_tokens = usage.get("completion_tokens", 0) or usage.get("output_tokens", 0)
-            provider = response.get("provider") or provider
-            model = response.get("model") or model
-            metrics.record_llm_call(llm_latency_ms, input_tokens, output_tokens)
-            llm_span.finish(status="ok", attributes={"latency_ms": llm_latency_ms, "input_tokens": input_tokens, "output_tokens": output_tokens})
-        except Exception as e:
-            llm_latency_ms = (time.time() - llm_start) * 1000
-            metrics.record_llm_call(llm_latency_ms, error=True)
-            llm_span.finish(status="error", attributes={"latency_ms": llm_latency_ms, "error": str(e)})
-            tracer.finish_span(status="error")
-            return f"LLM error: {e}"
+            tools = REGISTRY.schemas()
+            llm_start = time.time()
+            llm_span = tracer.start_span("llm_call", {"turn": turn, "provider": provider, "model": model})
+            try:
+                response = chat(active_messages, tools, stream=stream, stream_callback=stream_callback)
+                llm_latency_ms = (time.time() - llm_start) * 1000
+                usage = response.get("usage", {})
+                input_tokens = usage.get("prompt_tokens", 0) or usage.get("input_tokens", 0)
+                output_tokens = usage.get("completion_tokens", 0) or usage.get("output_tokens", 0)
+                provider = response.get("provider") or provider
+                model = response.get("model") or model
+                metrics.record_llm_call(llm_latency_ms, input_tokens, output_tokens)
+                llm_span.finish(status="ok", attributes={"latency_ms": llm_latency_ms, "input_tokens": input_tokens, "output_tokens": output_tokens})
+            except Exception as e:
+                llm_latency_ms = (time.time() - llm_start) * 1000
+                metrics.record_llm_call(llm_latency_ms, error=True)
+                llm_span.finish(status="error", attributes={"latency_ms": llm_latency_ms, "error": str(e)})
+                tracer.finish_span(status="error")
+                return f"LLM error: {e}"
 
-        decision, content = normalize_tool_calls(response)
+            decision, content = normalize_tool_calls(response)
 
-        # Handle native tool_calls path.
-        if decision is None:
-            native_calls = response.get("choices", [{}])[0].get("message", {}).get("tool_calls") or []
-            if not native_calls:
-                final_response = content or "No response."
+            # Handle native tool_calls path.
+            if decision is None:
+                native_calls = response.get("choices", [{}])[0].get("message", {}).get("tool_calls") or []
+                if not native_calls:
+                    final_response = content or "No response."
+                    break
+                assistant_message = {"role": "assistant", "content": content or "", "tool_calls": native_calls}
+                messages.append(assistant_message)
+                for call in native_calls:
+                    fn_name = call.get("function", {}).get("name")
+                    fn_args = call.get("function", {}).get("arguments")
+                    call_sig = f"{fn_name}:{fn_args}"
+                    tool_call_history.append(call_sig)
+
+                    if tool_callback:
+                        tool_callback(fn_name, fn_args)
+                    result = execute_tool_call(call, metrics, tracer)
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": call.get("id", "call_0"),
+                            "name": fn_name,
+                            "content": json.dumps(result),
+                        }
+                    )
+                    tool_res = result.get("result") if isinstance(result, dict) else None
+                    if isinstance(tool_res, dict) and tool_res.get("permission_required"):
+                        perm = tool_res["permission_required"]
+                        tracer.finish_span(status="ok", attributes={"permission_required": perm})
+                        return {
+                            "permission_required": perm,
+                            "pending_input": user_input,
+                        }
+
+                    err_msg = result.get("error") or (tool_res.get("error") if isinstance(tool_res, dict) else None)
+                    if err_msg:
+                        messages.append({
+                            "role": "system",
+                            "content": (
+                                f"The tool '{fn_name}' returned an error: {err_msg}. "
+                                "Replan: try a different tool, adjust arguments, or ask the user for clarification."
+                            ),
+                        })
+
+                    # Check for repeated identical tool calls
+                    if len(tool_call_history) >= 3 and tool_call_history[-3:] == [call_sig] * 3:
+                        messages.append({
+                            "role": "system",
+                            "content": f"Loop Warning: You called '{fn_name}' 3 times in a row with identical arguments. Change your approach or provide final response.",
+                        })
+
+                continue
+
+            # Structured JSON path.
+            last_reasoning = decision.reasoning
+            messages.append({"role": "assistant", "content": content or ""})
+
+            if decision.response and not decision.tool_calls:
+                final_response = decision.response
                 break
-            assistant_message = {"role": "assistant", "content": content or "", "tool_calls": native_calls}
+
+            calls = _tool_calls_from_decision(decision)
+            if not calls:
+                final_response = decision.response or "No response."
+                break
+
+            assistant_message = {"role": "assistant", "content": content or "", "tool_calls": calls}
             messages.append(assistant_message)
-            for call in native_calls:
+
+            for call in calls:
+                fn_name = call.get("function", {}).get("name")
+                fn_args = call.get("function", {}).get("arguments")
+                call_sig = f"{fn_name}:{fn_args}"
+                tool_call_history.append(call_sig)
+
                 if tool_callback:
-                    fn_info = call.get("function", {})
-                    tool_callback(fn_info.get("name"), fn_info.get("arguments"))
+                    tool_callback(fn_name, fn_args)
                 result = execute_tool_call(call, metrics, tracer)
                 messages.append(
                     {
                         "role": "tool",
                         "tool_call_id": call.get("id", "call_0"),
-                        "name": call.get("function", {}).get("name"),
+                        "name": fn_name,
                         "content": json.dumps(result),
                     }
                 )
-                if isinstance(result, dict) and result.get("error"):
-                    history_summary = " ".join(
-                        f"{m.get('role')}: {str(m.get('content', ''))[:80]}"
-                        for m in messages[-6:]
-                    )
-                    replan = _generate_replan(user_input, call.get("function", {}).get("name", ""), result["error"], history_summary, messages)
-                    messages.append({"role": "system", "content": replan})
-            continue
+                tool_res = result.get("result") if isinstance(result, dict) else None
+                if isinstance(tool_res, dict) and tool_res.get("permission_required"):
+                    perm = tool_res["permission_required"]
+                    tracer.finish_span(status="ok", attributes={"permission_required": perm})
+                    return {
+                        "permission_required": perm,
+                        "pending_input": user_input,
+                    }
 
-        # Structured JSON path.
-        last_reasoning = decision.reasoning
-        messages.append({"role": "assistant", "content": content or ""})
+                err_msg = result.get("error") or (tool_res.get("error") if isinstance(tool_res, dict) else None)
+                if err_msg:
+                    messages.append({
+                        "role": "system",
+                        "content": (
+                            f"The tool '{fn_name}' failed with error: {err_msg}. "
+                            "Replan: try a different tool, adjust arguments, or ask the user for clarification."
+                        ),
+                    })
 
-        if decision.response and not decision.tool_calls:
-            final_response = decision.response
-            break
+                # Check for repeated identical tool calls
+                if len(tool_call_history) >= 3 and tool_call_history[-3:] == [call_sig] * 3:
+                    messages.append({
+                        "role": "system",
+                        "content": f"Loop Warning: You called '{fn_name}' 3 times in a row with identical arguments. Change your approach or provide final response.",
+                    })
 
-        calls = _tool_calls_from_decision(decision)
-        if not calls:
-            final_response = decision.response or "No response."
-            break
+        if final_response:
+            final_response = guardrails.sanitize_output(final_response)
+            if reasoning_memory and last_reasoning:
+                reasoning_memory.save(user_input, last_reasoning, final_response)
+            tracer.finish_span(status="ok")
+            return final_response
 
-        assistant_message = {"role": "assistant", "content": content or "", "tool_calls": calls}
-        messages.append(assistant_message)
-
-        for call in calls:
-            if tool_callback:
-                fn_info = call.get("function", {})
-                tool_callback(fn_info.get("name"), fn_info.get("arguments"))
-            result = execute_tool_call(call, metrics, tracer)
-            messages.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": call.get("id", "call_0"),
-                    "name": call.get("function", {}).get("name"),
-                    "content": json.dumps(result),
-                }
-            )
-            if isinstance(result, dict) and result.get("error"):
-                history_summary = " ".join(
-                    f"{m.get('role')}: {str(m.get('content', ''))[:80]}"
-                    for m in messages[-6:]
-                )
-                failed_name = call.get("function", {}).get("name", "")
-                replan = _generate_replan(user_input, failed_name, result["error"], history_summary, messages)
-                messages.append({"role": "system", "content": replan})
-
-    if final_response:
-        if reasoning_memory and last_reasoning:
-            reasoning_memory.save(user_input, last_reasoning, final_response)
-        tracer.finish_span(status="ok")
-        return final_response
+        # Fallback summary if max turns reached
+        try:
+            messages.append({
+                "role": "user",
+                "content": "Maximum execution turns reached. Summarize what you have accomplished so far and provide your best final response.",
+            })
+            fallback_resp = chat(messages, tools=[])
+            final_content = fallback_resp.get("choices", [{}])[0].get("message", {}).get("content", "")
+            if final_content:
+                final_response = guardrails.sanitize_output(final_content)
+                tracer.finish_span(status="ok", attributes={"reason": "max_turns_summary_fallback"})
+                return final_response
+        except Exception:
+            pass
+    except KeyboardInterrupt:
+        tracer.finish_span(status="error", attributes={"reason": "interrupted_by_user"})
+        raise
 
     tracer.finish_span(status="error", attributes={"reason": "max_turns_reached"})
     return "Maximum turns reached."
-
 
 def run_summary(session_id: Optional[str] = None) -> str:
     """Return a human-readable summary of the session."""
