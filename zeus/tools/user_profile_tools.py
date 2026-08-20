@@ -1,10 +1,9 @@
 """Tools for the agent to explicitly learn about users."""
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from zeus.core.registry import register_tool
 from zeus.memory.user_profile import UserProfileStore
-
 
 _store = UserProfileStore()
 

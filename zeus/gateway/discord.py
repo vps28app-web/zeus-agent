@@ -148,6 +148,7 @@ class DiscordClient(discord.Client):
             return
 
         from pathlib import Path
+
         from zeus.tools.file import get_file_permission_manager
 
         pm = get_file_permission_manager()

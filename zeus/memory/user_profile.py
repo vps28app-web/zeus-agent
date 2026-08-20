@@ -8,7 +8,6 @@ from typing import Any, Dict, List, Optional
 from zeus.db.connection import init_db
 from zeus.db.repository import UserProfileRepository
 
-
 _NAME_PATTERNS = [
     re.compile(r"meu nome (?:é|e|eh)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)", re.IGNORECASE),
     re.compile(r"(?:pode me chamar de|me chame de)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)", re.IGNORECASE),

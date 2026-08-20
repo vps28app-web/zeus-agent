@@ -175,8 +175,9 @@ class WhatsAppGateway:
             self.send_message(target, "Ação negada pelo usuário / Action denied by user.")
             return
 
-        from pathlib import Path
         import threading
+        from pathlib import Path
+
         from zeus.tools.file import get_file_permission_manager
 
         pm = get_file_permission_manager()

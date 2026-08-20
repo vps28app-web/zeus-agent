@@ -1,24 +1,15 @@
 """Unit tests for Model Context Protocol (MCP) implementation."""
 
-import json
-import os
-from pathlib import Path
-from unittest.mock import MagicMock, patch
 
-import pytest
 
 from zeus.core.registry import REGISTRY, register_tool
 from zeus.mcp.client import MCPClient
 from zeus.mcp.config import MCPConfig, MCPServerConfig
 from zeus.mcp.manager import MCPManager, get_mcp_manager
 from zeus.mcp.protocol import (
-    JsonRpcRequest,
     JsonRpcResponse,
-    MCPToolParam,
-    build_call_tool_request,
     build_initialize_request,
     build_initialized_notification,
-    build_list_tools_request,
 )
 from zeus.mcp.server import MCPServer
 

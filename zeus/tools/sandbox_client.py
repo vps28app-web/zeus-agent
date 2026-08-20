@@ -5,7 +5,6 @@ from typing import Any, Dict, Optional
 
 import requests
 
-
 # Environment variables allowed to be forwarded to sandbox/terminal subprocesses.
 # Sensitive credentials (API keys, tokens, passwords) are excluded by default.
 ALLOWED_ENV_VARS = {
@@ -86,7 +85,7 @@ def run_sandboxed_command(
         payload["work_dir"] = work_dir
 
     try:
-        response = requests.post(
+        response = requests.post(  # nosec B113
             f"{base_url}/run",
             json=payload,
             timeout=timeout + 5,

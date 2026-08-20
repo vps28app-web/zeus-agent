@@ -1,12 +1,10 @@
 """File read/write/search tools."""
 
-import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from zeus.core.registry import register_tool
 from zeus.security.permissions import PermissionManager, PermissionRequired
-
 
 # Default permission manager. CLI/gateways can inject one with a callback.
 _permissions = PermissionManager()

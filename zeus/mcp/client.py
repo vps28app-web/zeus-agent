@@ -4,8 +4,7 @@ import json
 import os
 import subprocess
 import threading
-import time
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from zeus.core.registry import Tool, register_tool
 from zeus.mcp.config import MCPServerConfig

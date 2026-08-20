@@ -2,7 +2,7 @@
 
 import pytest
 
-from zeus.security.guardrails import GuardrailViolation, GuardrailsManager
+from zeus.security.guardrails import GuardrailsManager, GuardrailViolation
 
 
 class TestInputGuardrail:

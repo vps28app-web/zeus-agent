@@ -2,7 +2,6 @@
 
 import json
 import os
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from zeus.db.connection import init_db

@@ -17,7 +17,7 @@ import os
 import re
 import threading
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Set
+from typing import Callable, Optional, Set
 
 
 class PermissionRequired(Exception):

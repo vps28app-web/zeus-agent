@@ -2,7 +2,7 @@
 
 import threading
 import time
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict
 
 
 class ConfirmationManager:

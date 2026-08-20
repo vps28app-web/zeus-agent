@@ -1,10 +1,9 @@
 """Memory tools for the agent to store and retrieve notes."""
 
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 from zeus.core.registry import register_tool
 from zeus.memory.store import MemoryStore
-
 
 _store = MemoryStore()
 

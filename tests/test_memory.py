@@ -1,9 +1,10 @@
 """Unit tests for the memory system."""
 
-from pathlib import Path
 import tempfile
+from pathlib import Path
+
 from zeus.memory.store import MemoryStore
-from zeus.tools.memory_tools import remember, recall, search_memory, list_memories, forget_memory
+from zeus.tools.memory_tools import forget_memory, list_memories, recall, remember, search_memory
 
 
 def test_memory_store_operations():

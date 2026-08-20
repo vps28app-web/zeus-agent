@@ -3,7 +3,7 @@
 from typing import Dict, List, Optional
 
 from zeus.mcp.client import MCPClient
-from zeus.mcp.config import MCPConfig, MCPServerConfig
+from zeus.mcp.config import MCPConfig
 
 
 class MCPManager:
@@ -61,7 +61,7 @@ class MCPManager:
         client = self.clients.pop(name, None)
         if client:
             client.stop()
-        
+
         # Clean up any registered tools associated with this MCP server
         from zeus.core.registry import REGISTRY
         prefix = f"mcp_{name}_"

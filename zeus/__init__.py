@@ -3,4 +3,16 @@
 __version__ = "0.1.0"
 
 # Import tools so they self-register
-from zeus.tools import terminal, file, web, memory_tools, sandbox, git, code_execution, browser, database, scheduler, user_profile_tools  # noqa: F401
+from zeus.tools import (  # noqa: F401
+    browser,
+    code_execution,
+    database,
+    file,
+    git,
+    memory_tools,
+    sandbox,
+    scheduler,
+    terminal,
+    user_profile_tools,
+    web,
+)

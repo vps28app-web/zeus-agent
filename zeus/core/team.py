@@ -6,7 +6,7 @@ Each worker has its own system prompt and a focused toolset.
 
 import json
 import time
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from zeus.core.agent import run_agent
 from zeus.core.registry import REGISTRY

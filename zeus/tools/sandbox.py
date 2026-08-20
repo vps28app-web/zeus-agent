@@ -1,6 +1,6 @@
 """Sandbox execution tool backed by the Go sandbox server."""
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from zeus.core.registry import register_tool
 from zeus.tools.sandbox_client import run_sandboxed_command

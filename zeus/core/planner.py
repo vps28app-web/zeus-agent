@@ -1,12 +1,9 @@
 """Plan mode: ask the LLM to produce a structured plan before executing."""
 
-import json
-import os
 from typing import Any, Dict, List, Optional
 
 from zeus.core.router import chat
-from zeus.core.schemas import PlanOutput, PlanStep
-
+from zeus.core.schemas import PlanOutput
 
 PLAN_SYSTEM_PROMPT = """You are Zeus in planning mode.
 

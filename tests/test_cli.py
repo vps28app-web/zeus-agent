@@ -3,7 +3,7 @@
 import io
 from contextlib import redirect_stdout
 
-from zeus.cli.main import _print_command_menu, _print_skills_menu, _format_tokens, SKILL_SETS
+from zeus.cli.main import SKILL_SETS, _format_tokens, _print_command_menu, _print_skills_menu
 
 
 def test_print_command_menu_shows_slash_commands():

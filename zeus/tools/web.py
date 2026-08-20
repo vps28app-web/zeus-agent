@@ -1,7 +1,6 @@
 """Web search and content extraction tools."""
 
-import os
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 from zeus.core.registry import register_tool
 

@@ -1,6 +1,6 @@
 """Unit tests for the tool registry."""
 
-from zeus.core.registry import Tool, register_tool, REGISTRY, ToolRegistry
+from zeus.core.registry import REGISTRY, Tool, ToolRegistry, register_tool
 
 
 def test_tool_registration():

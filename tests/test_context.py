@@ -1,6 +1,6 @@
 """Unit tests for context pruning and summarization."""
 
-from zeus.memory.context import estimate_tokens, summarize_turns, prune_messages
+from zeus.memory.context import estimate_tokens, prune_messages, summarize_turns
 
 
 def test_estimate_tokens():

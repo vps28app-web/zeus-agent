@@ -7,7 +7,6 @@ from zeus.core.registry import register_tool
 from zeus.security.permissions import PermissionManager, check_shell_safety
 from zeus.tools.sandbox_client import safe_environment
 
-
 _permissions = PermissionManager()
 
 
@@ -44,7 +43,7 @@ def run_terminal(command: str, timeout: int = 60) -> Dict[str, Any]:
         )
         return {"error": safety}
 
-    result = subprocess.run(
+    result = subprocess.run(  # nosec B602
         command,
         shell=True,
         capture_output=True,

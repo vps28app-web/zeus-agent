@@ -6,8 +6,7 @@ users can override via ZEUS_COST_OVERRIDES or config.yaml.
 
 import json
 import os
-from typing import Any, Dict, Optional
-
+from typing import Any, Dict
 
 DEFAULT_PRICES: Dict[str, Dict[str, float]] = {
     # Provider/model -> {input, output}

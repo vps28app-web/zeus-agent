@@ -234,9 +234,10 @@ def google_chat(
     stream: bool = False,
 ) -> Any:
     """Google Gemini native provider via Generative Language API."""
+    from pathlib import Path
+
     import requests
     from dotenv import load_dotenv
-    from pathlib import Path
 
     zeus_home = Path(os.getenv("ZEUS_HOME", os.path.expanduser("~/.zeus")))
     for path in [zeus_home / ".env", Path.cwd() / ".env"]:
@@ -394,7 +395,25 @@ def chat(
     if provider not in PROVIDERS:
         raise ValueError(f"Unknown provider: {provider}. Available: {list(PROVIDERS)}")
 
-    response = PROVIDERS[provider](messages, tools, model, stream=stream)
+    try:
+        response = PROVIDERS[provider](messages, tools, model, stream=stream)
+    except RuntimeError as e:
+        err = str(e).lower()
+        if "api_key" in err or "api key" in err:
+            key_name = {
+                "openrouter": "OPENROUTER_API_KEY",
+                "opencode_go": "OPENCODE_GO_API_KEY",
+                "openai": "OPENAI_API_KEY",
+                "anthropic": "ANTHROPIC_API_KEY",
+                "google": "GEMINI_API_KEY / GOOGLE_API_KEY",
+                "deepseek": "DEEPSEEK_API_KEY",
+                "mistral": "MISTRAL_API_KEY",
+            }.get(provider, f"chave de API do provider '{provider}'")
+            raise RuntimeError(
+                f"Chave de API não configurada para o provider '{provider}'. "
+                f"Defina {key_name} no arquivo .env ou via /config set {key_name.split()[0]} <valor>."
+            ) from e
+        raise
 
     if stream:
         return _stream_response(response, provider, stream_callback)

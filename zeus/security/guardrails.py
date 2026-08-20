@@ -1,10 +1,8 @@
 """Guardrails engine for input sanitization, pre-execution verification, scope limits, and output sanitization."""
 
-import os
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional
-
+from typing import Any, Dict, Optional
 
 # Secrets patterns for automatic redaction
 SECRET_PATTERNS = [

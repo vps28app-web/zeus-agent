@@ -4,7 +4,6 @@ import json
 import os
 from typing import Any, Dict, List, Optional
 
-
 # Conservative character-per-token estimate for mixed text/code.
 CHARS_PER_TOKEN = 3.5
 MAX_TOOL_OUTPUT_CHARS = 4000

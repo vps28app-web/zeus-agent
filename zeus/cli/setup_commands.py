@@ -1,10 +1,8 @@
 """Interactive setup commands for Zeus (model/provider config)."""
 
 import os
-import sys
 from pathlib import Path
 from typing import Optional
-
 
 MODEL_PRESETS = {
     "opencode_go": [

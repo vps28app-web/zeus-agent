@@ -5,7 +5,6 @@ import sqlite3
 from pathlib import Path
 from typing import Optional
 
-
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS memories (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -2,6 +2,7 @@
 
 import os
 from typing import Any, Dict, Optional
+
 import requests
 
 from zeus.core.registry import register_tool
@@ -34,7 +35,6 @@ def gemini_search_grounding(query: str, model: Optional[str] = None) -> Dict[str
         text = "\n".join(p.get("text", "") for p in parts if "text" in p)
 
         grounding_metadata = candidates[0].get("groundingMetadata", {})
-        search_entry_point = grounding_metadata.get("searchEntryPoint", {}).get("renderedContent")
         web_search_queries = grounding_metadata.get("webSearchQueries", [])
         sources = []
         for chunk in grounding_metadata.get("groundingChunks", []):

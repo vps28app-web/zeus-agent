@@ -1,7 +1,6 @@
 """Interactive setup helpers for Zeus gateways."""
 
 import os
-import sys
 from pathlib import Path
 from typing import Optional
 
@@ -162,8 +161,8 @@ def _setup_telegram(token: str | None = None, chat_id: str | None = None, skip_v
     _write_env_file(env_path, content)
 
     print(f"\nConfiguração salva em {env_path}")
-    print(f"\nPara iniciar o gateway, rode:")
-    print(f"  zeus gateway start telegram")
+    print("\nPara iniciar o gateway, rode:")
+    print("  zeus gateway start telegram")
     return True
 
 

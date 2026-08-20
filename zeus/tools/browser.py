@@ -41,7 +41,7 @@ def _start_chrome(user_data_dir: Path, port: int = 9222) -> subprocess.Popen:
     args = [
         binary,
         f"--remote-debugging-port={port}",
-        f"--remote-allow-origins=*",
+        "--remote-allow-origins=*",
         f"--user-data-dir={user_data_dir}",
         "--headless=new",
         "--no-sandbox",
@@ -62,7 +62,9 @@ def _get_ws_url(port: int = 9222, timeout: int = 10) -> str:
     last_error = ""
     while time.time() < deadline:
         try:
-            with urllib.request.urlopen(f"http://127.0.0.1:{port}/json/version", timeout=2) as resp:
+            with urllib.request.urlopen(  # nosec B310
+                f"http://127.0.0.1:{port}/json/version", timeout=2
+            ) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
                 return data["webSocketDebuggerUrl"]
         except Exception as e:

@@ -9,10 +9,14 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from zeus.gateway.discord import DiscordGateway
-from zeus.gateway.setup import ensure_configured, is_configured, setup_discord, setup_telegram, setup_whatsapp
+from zeus.gateway.setup import (
+    ensure_configured,
+    setup_discord,
+    setup_telegram,
+    setup_whatsapp,
+)
 from zeus.gateway.telegram import TelegramGateway
 from zeus.gateway.whatsapp import WhatsAppGateway
-
 
 ZUES_CONFIG_DIR = Path.home() / ".zeus"
 DEFAULT_ENV_PATH = ZUES_CONFIG_DIR / ".env"

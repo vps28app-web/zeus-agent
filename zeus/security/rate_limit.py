@@ -41,7 +41,6 @@ class RateLimiter:
         now = time.time()
         global_key = action
         user_key = f"{action}:{user_id or 'anonymous'}"
-        session_key = f"{action}:{user_id or 'anonymous'}:{session_id or 'global'}"
 
         with self._lock:
             # Global window

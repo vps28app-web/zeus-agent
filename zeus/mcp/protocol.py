@@ -1,9 +1,8 @@
 """Model Context Protocol (MCP) JSON-RPC 2.0 specification and types."""
 
-from dataclasses import dataclass, field
 import json
-from typing import Any, Dict, List, Optional, Union
-
+from dataclasses import dataclass, field
+from typing import Any, Dict, Optional, Union
 
 MCP_PROTOCOL_VERSION = "2024-11-05"
 

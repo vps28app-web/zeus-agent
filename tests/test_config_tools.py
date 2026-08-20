@@ -1,10 +1,11 @@
 """Tests for Zeus configuration management tools."""
 
 import os
+
 from zeus.tools.config_tools import (
     get_zeus_config,
-    update_zeus_config,
     list_available_models,
+    update_zeus_config,
 )
 
 

@@ -1,18 +1,12 @@
 """Background scheduler that polls for due tasks and executes them."""
 
-import json
-import os
 import threading
-import time
-import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from croniter import croniter
 
 from zeus.db.repository import ScheduledTaskRepository
-from zeus.core.router import chat
-
 
 # Singleton runner instance
 _scheduler: Optional["SchedulerRunner"] = None

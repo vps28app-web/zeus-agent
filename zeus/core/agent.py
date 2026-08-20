@@ -11,7 +11,6 @@ from zeus.core.schemas import AgentDecision, PlanOutput
 from zeus.memory.reasoning import ReasoningMemory
 from zeus.observability import get_metrics, get_tracer, report_summary
 
-
 SYSTEM_PROMPT = """You are Zeus, an autonomous agent harness that solves tasks by using tools.
 
 Your operating model is ReAct: think, act, observe, repeat until the task is done.

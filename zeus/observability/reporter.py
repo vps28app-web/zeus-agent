@@ -1,10 +1,9 @@
 """Reporter that combines metrics, cost, and traces into a summary."""
 
-import json
 from typing import Any, Dict, Optional
 
-from zeus.observability.metrics import MetricsCollector
 from zeus.observability.cost import estimate_cost
+from zeus.observability.metrics import MetricsCollector
 
 
 def report_summary(metrics: MetricsCollector, provider: Optional[str] = None, model: Optional[str] = None) -> Dict[str, Any]:

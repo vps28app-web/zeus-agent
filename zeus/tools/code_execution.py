@@ -2,15 +2,11 @@
 
 import base64
 import json
-import os
-import tempfile
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from zeus.core.registry import register_tool
 from zeus.security.permissions import PermissionManager, check_python_safety, check_shell_safety
 from zeus.tools.sandbox_client import run_sandboxed_command, safe_environment
-
 
 _permissions = PermissionManager()
 

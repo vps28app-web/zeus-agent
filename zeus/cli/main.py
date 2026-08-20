@@ -13,8 +13,8 @@ from typing import Any, Dict, List, Optional
 from dotenv import load_dotenv
 from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import Completer, Completion
-from prompt_toolkit.history import FileHistory
 from prompt_toolkit.formatted_text import ANSI
+from prompt_toolkit.history import FileHistory
 
 
 class ZeusCommandCompleter(Completer):
@@ -27,6 +27,7 @@ class ZeusCommandCompleter(Completer):
         "/summary": "Mostra resumo da sessão",
         "/skills": "Seleciona um skill set/persona para filtrar ferramentas",
         "/mcp": "Gerencia servidores Model Context Protocol (MCP)",
+        "/config": "Gerencia configurações do Zeus",
         "/models": "Troca o modelo/provedor LLM",
         "/plan": "Cria e executa um plano passo a passo (use /plan bmad <ideia> para análise de modelo de negócio)",
         "/team": "Executa com equipe multi-agente",
@@ -126,13 +127,26 @@ def _print_skills_menu(active_filter: Optional[set]) -> None:
     print()
 
 
-from zeus.core.agent import run_agent, run_summary
-from zeus.core.planner import generate_plan, generate_bmad_plan, execute_plan_step
-from zeus.core.registry import REGISTRY
-from zeus.core.team import create_default_team, Team, Worker
-from zeus.memory.session_log import get_logger
-from zeus.observability import get_metrics
-from zeus.tools import terminal, file, web, memory_tools, sandbox_client, sandbox, git, code_execution, browser, database, scheduler, user_profile_tools  # noqa: F401
+from zeus.core.agent import run_agent, run_summary  # noqa: E402
+from zeus.core.planner import execute_plan_step, generate_bmad_plan, generate_plan  # noqa: E402
+from zeus.core.registry import REGISTRY  # noqa: E402
+from zeus.core.team import create_default_team  # noqa: E402
+from zeus.memory.session_log import get_logger  # noqa: E402
+from zeus.observability import get_metrics  # noqa: E402
+from zeus.tools import (  # noqa: E402,F401
+    browser,
+    code_execution,
+    database,
+    file,
+    git,
+    memory_tools,
+    sandbox,
+    sandbox_client,
+    scheduler,
+    terminal,
+    user_profile_tools,
+    web,
+)
 
 
 def _ask_file_permission(session: PromptSession, message: str) -> Any:
@@ -334,6 +348,7 @@ def _print_command_menu() -> None:
         ("/summary", "Mostra resumo da sessão"),
         ("/skills", "Seleciona um skill set/persona para filtrar ferramentas"),
         ("/mcp", "Gerencia servidores Model Context Protocol (MCP)"),
+        ("/config", "Gerencia configurações do Zeus (get/set/list)"),
         ("/models", "Troca o modelo/provedor LLM"),
         ("/plan <tarefa>", "Cria e executa um plano passo a passo"),
         ("/plan bmad <ideia>", "Análise BMAD de modelo de negócio"),
@@ -434,6 +449,77 @@ def _handle_mcp_command(text: str) -> None:
 
     else:
         _print_mcp_menu()
+
+
+def _print_config_menu(config: Dict[str, Any]) -> None:
+    """Print current Zeus configuration in a visual card."""
+    term_width = _get_term_width()
+    title = " ⚙️ CONFIGURAÇÃO ZEUS "
+    line_length = max(10, term_width - len(title) - 6)
+    top = _color("╭──", 33) + _color(title, "1;33") + _color("─" * line_length, 33)
+    bottom = _color("╰" + "─" * (term_width - 3), 33)
+
+    print()
+    print(top)
+    print(f"{_color('│', 33)}  {_color('Provider:', 90)} {config.get('zeus_provider', 'unknown')}")
+    print(f"{_color('│', 33)}  {_color('Model:', 90)}    {config.get('zeus_model', 'unknown')}")
+    print(f"{_color('│', 33)}  {_color('Config file:', 90)} {config.get('config_file', 'unknown')}")
+    print(f"{_color('│', 33)}")
+    print(f"{_color('│', 33)}  {_color('API Keys:', 90)}")
+    for key, value in config.get("api_keys_status", {}).items():
+        print(f"{_color('│', 33)}    • {_color(key, '1;37')}: {value}")
+    print(f"{_color('│', 33)}")
+    print(f"{_color('│', 33)}  {_color('Comandos:', 90)}")
+    print(f"{_color('│', 33)}    • {_color('/config', 33)}                  - Mostra configuração atual")
+    print(f"{_color('│', 33)}    • {_color('/config get <key>', 33)}      - Lê valor de uma variável")
+    print(f"{_color('│', 33)}    • {_color('/config set <key> <value>', 33)} - Define variável no .env")
+    print(f"{_color('│', 33)}    • {_color('/config list-models [provider]', 33)} - Lista modelos disponíveis")
+    print(bottom)
+    print()
+
+
+def _handle_config_command(text: str) -> None:
+    """Handle /config subcommands."""
+    from zeus.tools.config_tools import get_zeus_config, list_available_models, update_zeus_config
+
+    parts = text.split(maxsplit=2)
+    subcmd = parts[1].lower() if len(parts) > 1 else "show"
+
+    if subcmd in ("show", "get", "list"):
+        if subcmd == "get" and len(parts) >= 3:
+            key = parts[2].strip().upper()
+            value = os.getenv(key)
+            status = f"{_color('Configurado:', 32)} ***{value[-4:]}" if value else f"{_color('Não configurado', 31)}"
+            print(f"\n{_color('🔑', 33)} {key}: {status}\n")
+        elif subcmd == "list" and len(parts) >= 3:
+            provider = parts[2].strip()
+            models = list_available_models(provider)
+            if "error" in models:
+                print(f"\n{_color('❌', '1;31')} {models['error']}\n")
+            else:
+                print(f"\n{_color('🤖 Modelos', 33)} {_color(provider, '1;33')}:")
+                for m in models.get("models", []):
+                    print(f"  • {m}")
+                print()
+        else:
+            _print_config_menu(get_zeus_config())
+
+    elif subcmd in ("set", "update"):
+        if len(parts) < 3 or " " not in parts[2]:
+            print(f"\n{_color('❌ Uso:', '1;31')} /config set <KEY> <value>\n")
+            return
+        key, value = parts[2].split(" ", 1)
+        result = update_zeus_config(key, value)
+        if result.get("status") == "success":
+            print(f"\n{_color('✅ Configuração salva:', 32)} {result['key']} = {result['new_value_masked']}\n")
+            if result['key'] in ("ZEUS_PROVIDER", "ZEUS_MODEL"):
+                _load_env(override=True)
+                print(f"{_color('🔄 Sessão atual recarregada:', 33)} provider={os.getenv('ZEUS_PROVIDER')} model={os.getenv('ZEUS_MODEL')}\n")
+        else:
+            print(f"\n{_color('❌ Erro:', '1;31')} {result.get('error', 'unknown')}\n")
+
+    else:
+        _print_config_menu(get_zeus_config())
 
 
 
@@ -673,6 +759,10 @@ def main() -> None:
 
         if text == "/mcp" or text.startswith("/mcp "):
             _handle_mcp_command(text)
+            continue
+
+        if text == "/config" or text.startswith("/config "):
+            _handle_config_command(text)
             continue
 
         if text == "/skills":

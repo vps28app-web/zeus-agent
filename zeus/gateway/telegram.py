@@ -4,7 +4,6 @@ Uses raw HTTP polling to avoid heavy dependencies.
 Only responds to messages from configured allowed chat IDs.
 """
 
-import json
 import os
 import threading
 import time
@@ -15,9 +14,7 @@ import requests
 from zeus.core.agent import run_agent
 from zeus.gateway.confirmations import ConfirmationManager
 from zeus.memory.session_log import get_logger
-from zeus.security.permissions import PermissionManager
 from zeus.tools.file import set_file_permission_callback
-
 
 DEFAULT_AGENT_TIMEOUT = float(os.getenv("ZEUS_GATEWAY_AGENT_TIMEOUT", "120"))
 
@@ -144,7 +141,7 @@ class TelegramGateway:
             "limit": 100,
             "timeout": int(self.poll_timeout),
         }
-        response = requests.post(
+        response = requests.post(  # nosec B113
             self.api_url("getUpdates"),
             json=payload,
             timeout=self.poll_timeout + 10,
@@ -273,6 +270,7 @@ class TelegramGateway:
             return
 
         from pathlib import Path
+
         from zeus.tools.file import get_file_permission_manager
 
         pm = get_file_permission_manager()
