@@ -27,9 +27,11 @@ def execute_python(
     The code receives a `inputs` dict serialized to JSON and can print to stdout.
     """
     from zeus.security.rate_limit import get_execution_limiter
+    from zeus.tools.sandbox_client import current_user_session
 
     limiter = get_execution_limiter()
-    if not limiter.is_allowed("execute_python"):
+    user_id, session_id = current_user_session()
+    if not limiter.is_allowed("execute_python", user_id=user_id, session_id=session_id):
         return {"error": "Rate limit exceeded for execute_python. Try again later."}
 
     if not _permissions.can_run_sandboxed_python():
@@ -90,9 +92,11 @@ def execute_shell_script(
 ) -> Dict[str, Any]:
     """Execute an arbitrary shell script inside the Go sandbox."""
     from zeus.security.rate_limit import get_execution_limiter
+    from zeus.tools.sandbox_client import current_user_session
 
     limiter = get_execution_limiter()
-    if not limiter.is_allowed("execute_shell_script"):
+    user_id, session_id = current_user_session()
+    if not limiter.is_allowed("execute_shell_script", user_id=user_id, session_id=session_id):
         return {"error": "Rate limit exceeded for execute_shell_script. Try again later."}
 
     if not _permissions.can_run_sandboxed_shell():

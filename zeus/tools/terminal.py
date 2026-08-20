@@ -18,9 +18,11 @@ def run_terminal(command: str, timeout: int = 60) -> Dict[str, Any]:
     Use run_sandboxed or execute_shell_script for isolated execution.
     """
     from zeus.security.rate_limit import get_execution_limiter
+    from zeus.tools.sandbox_client import current_user_session
 
     limiter = get_execution_limiter()
-    if not limiter.is_allowed("run_terminal"):
+    user_id, session_id = current_user_session()
+    if not limiter.is_allowed("run_terminal", user_id=user_id, session_id=session_id):
         return {"error": "Rate limit exceeded for run_terminal. Try again later."}
 
     if not _permissions.can_run_terminal():

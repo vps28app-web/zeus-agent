@@ -40,6 +40,14 @@ def safe_environment(extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:
     return env
 
 
+def current_user_session() -> tuple[Optional[str], Optional[str]]:
+    """Return (user_id, session_id) from environment if available."""
+    return (
+        os.getenv("ZEUS_USER_ID") or None,
+        os.getenv("ZEUS_SESSION_ID") or None,
+    )
+
+
 DEFAULT_URL = "http://127.0.0.1:9876"
 
 

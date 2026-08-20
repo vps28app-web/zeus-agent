@@ -39,10 +39,13 @@ def read_file(path: str, limit: int = 2000, offset: int = 1) -> Dict[str, Any]:
         lines = file_path.read_text(encoding="utf-8").splitlines()
         start = max(0, offset - 1)
         end = start + limit
+        selected = lines[start:end]
         return {
+            "status": "success",
             "path": str(file_path),
             "total_lines": len(lines),
-            "lines": lines[start:end],
+            "lines": selected,
+            "message": f"Read {len(selected)} lines from {file_path}",
         }
     except Exception as e:
         return {"error": str(e)}
@@ -62,7 +65,12 @@ def write_file(path: str, content: str) -> Dict[str, Any]:
         file_path.write_text(content, encoding="utf-8")
         from zeus.security.audit import get_audit_logger
         get_audit_logger().log_file_mutation(action="write", path=file_path, allowed=True)
-        return {"path": str(file_path), "bytes_written": len(content)}
+        return {
+            "status": "success",
+            "path": str(file_path),
+            "bytes_written": len(content),
+            "message": f"Successfully wrote {len(content)} bytes to {file_path}",
+        }
     except Exception as e:
         return {"error": str(e)}
 
@@ -81,10 +89,16 @@ def delete_file(path: str) -> Dict[str, Any]:
             file_path.unlink()
             from zeus.security.audit import get_audit_logger
             get_audit_logger().log_file_mutation(action="delete", path=file_path, allowed=True)
-            return {"deleted": True, "path": str(file_path)}
+            return {
+                "status": "success",
+                "deleted": True,
+                "path": str(file_path),
+                "message": f"Successfully deleted {file_path}",
+            }
         return {"error": f"Not a file: {path}"}
     except Exception as e:
         return {"error": str(e)}
+
 
 
 def list_directory(path: str = ".") -> Dict[str, Any]:
