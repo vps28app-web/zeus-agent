@@ -60,3 +60,24 @@ def get_logger(session_id: Optional[str] = None, new_session: bool = False) -> S
     if new_session:
         session_id = None  # force fresh ID
     return SessionLogger(session_id)
+
+
+def get_session_messages(session_id: str, limit: int = 20) -> List[Dict[str, str]]:
+    """Load conversation history for session_id from jsonl log file."""
+    path = _logs_path() / f"{session_id}.jsonl"
+    if not path.exists():
+        return []
+    messages = []
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+        for line in lines:
+            if not line.strip():
+                continue
+            entry = json.loads(line)
+            role = entry.get("role")
+            content = entry.get("content")
+            if role in ("user", "assistant") and isinstance(content, str) and content.strip():
+                messages.append({"role": role, "content": content})
+    except Exception:
+        pass
+    return messages[-limit:]

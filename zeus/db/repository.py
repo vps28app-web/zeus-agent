@@ -427,3 +427,69 @@ class UserProfileRepository:
             conn.commit()
         finally:
             conn.close()
+
+
+class AuditRepository:
+    def __init__(self, db_path: Optional[Path] = None):
+        self.db_path = db_path
+
+    def add(
+        self,
+        timestamp: float,
+        action: str,
+        session_id: Optional[str],
+        user_id: Optional[str],
+        allowed: bool,
+        details: Dict[str, Any],
+    ) -> None:
+        conn = get_connection(self.db_path)
+        try:
+            conn.execute(
+                """INSERT INTO audit_logs
+                (timestamp, action, session_id, user_id, allowed, details)
+                VALUES (?, ?, ?, ?, ?, ?)""",
+                (
+                    timestamp,
+                    action,
+                    session_id,
+                    user_id,
+                    int(allowed),
+                    json.dumps(details, ensure_ascii=False, default=str),
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def list_recent(self, limit: int = 100) -> List[Dict[str, Any]]:
+        conn = get_connection(self.db_path)
+        try:
+            rows = conn.execute(
+                "SELECT * FROM audit_logs ORDER BY id DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+            return [dict(row) for row in rows]
+        finally:
+            conn.close()
+
+    def list_by_session(self, session_id: str, limit: int = 100) -> List[Dict[str, Any]]:
+        conn = get_connection(self.db_path)
+        try:
+            rows = conn.execute(
+                "SELECT * FROM audit_logs WHERE session_id = ? ORDER BY id DESC LIMIT ?",
+                (session_id, limit),
+            ).fetchall()
+            return [dict(row) for row in rows]
+        finally:
+            conn.close()
+
+    def list_by_user(self, user_id: str, limit: int = 100) -> List[Dict[str, Any]]:
+        conn = get_connection(self.db_path)
+        try:
+            rows = conn.execute(
+                "SELECT * FROM audit_logs WHERE user_id = ? ORDER BY id DESC LIMIT ?",
+                (user_id, limit),
+            ).fetchall()
+            return [dict(row) for row in rows]
+        finally:
+            conn.close()

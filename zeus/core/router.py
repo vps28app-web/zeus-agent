@@ -183,6 +183,50 @@ def anthropic_chat(
     return response.json()
 
 
+def _sanitize_gemini_schema(schema: Any) -> Any:
+    """Sanitize JSON Schema for Google Gemini API functionDeclarations.
+    Gemini API strict schema validator rejects 'additionalProperties', '$ref', '$schema', 'title', 'default', 'examples', etc.
+    It also strictly requires 'items' for array types and 'properties' for object types.
+    """
+    if not isinstance(schema, dict):
+        return schema
+
+    allowed_keys = {"type", "properties", "required", "description", "enum", "items", "format"}
+    cleaned = {}
+
+    for k, v in schema.items():
+        if k not in allowed_keys:
+            continue
+        if k == "properties" and isinstance(v, dict):
+            cleaned[k] = {prop_k: _sanitize_gemini_schema(prop_v) for prop_k, prop_v in v.items()}
+        elif k == "items":
+            if isinstance(v, dict):
+                cleaned[k] = _sanitize_gemini_schema(v)
+            elif isinstance(v, list) and v:
+                cleaned[k] = _sanitize_gemini_schema(v[0])
+            else:
+                cleaned[k] = {"type": "string"}
+        else:
+            cleaned[k] = v
+
+    if "type" not in cleaned:
+        if "properties" in cleaned:
+            cleaned["type"] = "object"
+        elif "items" in cleaned:
+            cleaned["type"] = "array"
+        else:
+            cleaned["type"] = "string"
+
+    if cleaned.get("type") == "array" and "items" not in cleaned:
+        cleaned["items"] = {"type": "string"}
+
+    if cleaned.get("type") == "object" and "properties" not in cleaned:
+        cleaned["properties"] = {}
+
+    return cleaned
+
+
+
 def google_chat(
     messages: List[Dict[str, str]],
     tools: List[Dict[str, Any]],
@@ -191,10 +235,17 @@ def google_chat(
 ) -> Any:
     """Google Gemini native provider via Generative Language API."""
     import requests
+    from dotenv import load_dotenv
+    from pathlib import Path
 
-    api_key = os.getenv("GOOGLE_API_KEY")
+    zeus_home = Path(os.getenv("ZEUS_HOME", os.path.expanduser("~/.zeus")))
+    for path in [zeus_home / ".env", Path.cwd() / ".env"]:
+        if path.exists():
+            load_dotenv(path, override=False)
+
+    api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
     if not api_key:
-        raise RuntimeError("GOOGLE_API_KEY not set")
+        raise RuntimeError("GOOGLE_API_KEY or GEMINI_API_KEY not set. Add GEMINI_API_KEY=your_key in .env")
 
     # Gemini uses contents format with roles mapped to "user" and "model".
     contents = []
@@ -213,7 +264,20 @@ def google_chat(
     if system_parts:
         payload["systemInstruction"] = {"parts": system_parts}
     if tools:
-        payload["tools"] = [{"functionDeclarations": [t["function"] for t in tools]}]
+        fn_decls = []
+        for t in tools:
+            fn = t.get("function", {})
+            fn_decl = {
+                "name": fn.get("name", ""),
+                "description": fn.get("description", "") or "No description provided.",
+            }
+            params = fn.get("parameters")
+            if params:
+                fn_decl["parameters"] = _sanitize_gemini_schema(params)
+            fn_decls.append(fn_decl)
+        payload["tools"] = [{"functionDeclarations": fn_decls}]
+
+
 
     url = (
         f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
@@ -225,8 +289,15 @@ def google_chat(
         json=payload,
         timeout=120,
     )
-    response.raise_for_status()
+    if response.status_code != 200:
+        try:
+            err_data = response.json()
+            err_msg = err_data.get("error", {}).get("message", response.text)
+        except Exception:
+            err_msg = response.text
+        raise RuntimeError(f"Google Gemini API Error ({response.status_code}): {err_msg}")
     return response.json()
+
 
 
 def deepseek_chat(
@@ -397,7 +468,34 @@ def _normalize_response(response: Dict[str, Any], provider: str) -> Dict[str, An
         tool_calls = []
         for part in parts:
             if "text" in part:
-                text_parts.append(part["text"])
+                txt = part["text"]
+                parsed_tools = False
+                try:
+                    data = json.loads(txt.strip())
+                    if isinstance(data, dict) and "tool_calls" in data:
+                        for tc in data["tool_calls"]:
+                            t_name = tc.get("name") or (tc.get("function", {}).get("name") if isinstance(tc.get("function"), dict) else None)
+                            t_args = tc.get("arguments") or tc.get("inputs") or (tc.get("function", {}).get("arguments") if isinstance(tc.get("function"), dict) else {})
+                            if isinstance(t_args, dict):
+                                t_args_str = json.dumps(t_args)
+                            else:
+                                t_args_str = str(t_args)
+                            if t_name:
+                                tool_calls.append({
+                                    "id": t_name,
+                                    "type": "function",
+                                    "function": {
+                                        "name": t_name,
+                                        "arguments": t_args_str,
+                                    },
+                                })
+                        parsed_tools = True
+                        if data.get("response"):
+                            text_parts.append(str(data["response"]))
+                except Exception:
+                    pass
+                if not parsed_tools:
+                    text_parts.append(txt)
             elif "functionCall" in part:
                 fc = part["functionCall"]
                 tool_calls.append({
@@ -408,6 +506,7 @@ def _normalize_response(response: Dict[str, Any], provider: str) -> Dict[str, An
                         "arguments": json.dumps(fc.get("args", {})),
                     },
                 })
+
         res = {
             "choices": [
                 {

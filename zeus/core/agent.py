@@ -46,7 +46,9 @@ You MUST respond with a single valid JSON object matching this exact schema:
 7. **Stop when done.** If you have a final answer, do not call more tools.
 8. **Replan on failure.** If a tool returns an error or unexpected result, explain what went wrong in `reasoning` and choose a different approach.
 9. **Learn from reasoning.** When you successfully solve a task, your reasoning may be saved to help with similar future tasks.
+10. **Strict Tool Verification.** Only call tools explicitly provided in your active tools schema. If an MCP server or tool is disabled or removed, do not attempt to invoke it; use native tools instead.
 """
+
 
 
 def _parse_decision(content: Optional[str]) -> AgentDecision:
@@ -243,10 +245,18 @@ def run_agent(
     if mem_context:
         system_prompt += f"\n\n## Persistent User Profile & Knowledge\n{mem_context}\n"
 
+    history_messages = []
+    if session_id:
+        from zeus.memory.session_log import get_session_messages
+        history_messages = get_session_messages(session_id, limit=10)
+
     messages: List[Dict[str, Any]] = [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_input},
     ]
+    messages.extend(history_messages)
+    if not history_messages or history_messages[-1].get("content") != user_input:
+        messages.append({"role": "user", "content": user_input})
+
 
     provider = None
     model = None
