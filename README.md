@@ -94,6 +94,7 @@ python -m zeus.cli -q "liste arquivos do diretório atual"
 /config set ZEUS_PROVIDER openai
 /mcp add gemini
 /models     # trocar modelo/provedor
+/learn      # aprendizados passados
 /plan       # criar e executar plano
 /team       # equipe multi-agente
 ```
@@ -134,3 +135,4 @@ sudo ./sandbox/sandbox -addr 127.0.0.1:9876
 - `docs/SANDBOX.md` — detalhes da sandbox
 - `docs/MCP.md` — Model Context Protocol
 - `docs/CONFIG.md` — gerenciamento de configurações
+- `docs/LEARNING.md` — aprendizado contínuo
