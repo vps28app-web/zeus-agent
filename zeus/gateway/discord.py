@@ -144,7 +144,7 @@ class DiscordClient(discord.Client):
         path: str = "",
     ) -> None:
         if choice == "deny":
-            await channel.send("Ação negada pelo usuário.")
+            await channel.send("Ação negada pelo usuário / Action denied by user.")
             return
 
         from pathlib import Path
@@ -154,15 +154,28 @@ class DiscordClient(discord.Client):
         pm.grant_permission(action, Path(path) if path else None, scope=choice)
 
         if choice == "once":
-            instruction = f"{original_input}\n\n[O usuário permitiu a ação de arquivo desta vez.]"
+            instruction = f"{original_input}\n\n[O usuário permitiu a ação de arquivo ({action}) desta vez. Execute a ação e retorne o resultado.]"
         elif choice == "always":
-            instruction = f"{original_input}\n\n[O usuário permitiu a ação de arquivo para esta sessão.]"
+            instruction = f"{original_input}\n\n[O usuário permitiu a ação de arquivo ({action}) para esta sessão. Execute a ação e retorne o resultado.]"
         elif choice == "persist":
-            instruction = f"{original_input}\n\n[O usuário permitiu a ação de arquivo permanentemente.]"
+            instruction = f"{original_input}\n\n[O usuário permitiu a ação de arquivo ({action}) permanentemente. Execute a ação e retorne o resultado.]"
         else:
             instruction = original_input
 
-        self._pending_inputs[user_id] = instruction
+        logger = get_logger(logger_session_id)
+        try:
+            response = run_agent(
+                instruction,
+                session_id=logger.session_id,
+                user_id=user_id,
+                platform="discord",
+            )
+            logger.log_turn("assistant", response, metadata={"platform": "discord", "user_id": user_id})
+            await self._send_chunks(channel, response)
+        except Exception as e:
+            logger.log_turn("error", str(e), metadata={"platform": "discord"})
+            await channel.send(f"Erro ao executar após autorização: {e}")
+
 
     async def _send_chunks(self, channel: discord.abc.Messageable, text: str) -> None:
         chunks = self._chunk_text(text)

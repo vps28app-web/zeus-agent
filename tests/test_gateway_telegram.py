@@ -120,5 +120,5 @@ class TestTelegramGateway:
 
         assert gateway._confirmations.has_pending("telegram", "123")
         payload = mock_post.call_args.kwargs["json"]
-        assert "Permissão de arquivo necessária: write em '/tmp/test.txt'" in payload["text"]
-
+        assert "Permissão de arquivo necessária" in payload["text"]
+        assert "/tmp/test.txt" in payload["text"]

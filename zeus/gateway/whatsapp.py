@@ -172,25 +172,43 @@ class WhatsAppGateway:
         path: str = "",
     ) -> None:
         if choice == "deny":
-            self.send_message(target, "Ação negada pelo usuário.")
+            self.send_message(target, "Ação negada pelo usuário / Action denied by user.")
             return
 
         from pathlib import Path
+        import threading
         from zeus.tools.file import get_file_permission_manager
 
         pm = get_file_permission_manager()
         pm.grant_permission(action, Path(path) if path else None, scope=choice)
 
         if choice == "once":
-            instruction = f"{original_input}\n\n[O usuário permitiu a ação de arquivo desta vez.]"
+            instruction = f"{original_input}\n\n[O usuário permitiu a ação de arquivo ({action}) desta vez. Execute a ação e retorne o resultado.]"
         elif choice == "always":
-            instruction = f"{original_input}\n\n[O usuário permitiu a ação de arquivo para esta sessão.]"
+            instruction = f"{original_input}\n\n[O usuário permitiu a ação de arquivo ({action}) para esta sessão. Execute a ação e retorne o resultado.]"
         elif choice == "persist":
-            instruction = f"{original_input}\n\n[O usuário permitiu a ação de arquivo permanentemente.]"
+            instruction = f"{original_input}\n\n[O usuário permitiu a ação de arquivo ({action}) permanentemente. Execute a ação e retorne o resultado.]"
         else:
             instruction = original_input
 
-        self._pending_inputs[user_id] = instruction
+        def worker():
+            logger = get_logger(logger_session_id)
+            try:
+                response = run_agent(
+                    instruction,
+                    session_id=logger.session_id,
+                    user_id=user_id,
+                    platform="whatsapp",
+                )
+                logger.log_turn("assistant", response, metadata={"from": target, "user_id": user_id})
+                self.send_message(target, response)
+            except Exception as e:
+                logger.log_turn("error", str(e), metadata={"from": target})
+                self.send_message(target, f"Erro ao executar após autorização: {e}")
+
+        t = threading.Thread(target=worker, daemon=True)
+        t.start()
+
 
     def run(self) -> None:
         self.running = True

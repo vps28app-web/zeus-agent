@@ -267,9 +267,9 @@ class TelegramGateway:
         action: str = "write",
         path: str = "",
     ) -> None:
-        """Resume agent execution after user confirms/denies a file action."""
+        """Resume agent execution immediately after user confirms/denies a file action."""
         if choice == "deny":
-            self.send_message(chat_id, "Ação negada pelo usuário.", reply_to_message_id=message_id)
+            self.send_message(chat_id, "Ação negada pelo usuário / Action denied by user.", reply_to_message_id=message_id)
             return
 
         from pathlib import Path
@@ -278,17 +278,35 @@ class TelegramGateway:
         pm = get_file_permission_manager()
         pm.grant_permission(action, Path(path) if path else None, scope=choice)
 
-        # Build instruction based on choice.
         if choice == "once":
-            instruction = f"{original_input}\n\n[O usuário permitiu a ação de arquivo desta vez.]"
+            instruction = f"{original_input}\n\n[O usuário permitiu a ação de arquivo ({action}) desta vez. Execute a ação e retorne o resultado.]"
         elif choice == "always":
-            instruction = f"{original_input}\n\n[O usuário permitiu a ação de arquivo para esta sessão.]"
+            instruction = f"{original_input}\n\n[O usuário permitiu a ação de arquivo ({action}) para esta sessão. Execute a ação e retorne o resultado.]"
         elif choice == "persist":
-            instruction = f"{original_input}\n\n[O usuário permitiu a ação de arquivo permanentemente.]"
+            instruction = f"{original_input}\n\n[O usuário permitiu a ação de arquivo ({action}) permanentemente. Execute a ação e retorne o resultado.]"
         else:
             instruction = original_input
 
-        self._pending_inputs[user_id] = instruction
+        def worker():
+            logger = get_logger(logger_session_id)
+            try:
+                response = _run_agent_with_timeout(
+                    instruction,
+                    session_id=logger.session_id,
+                    user_id=user_id,
+                    platform="telegram",
+                )
+                logger.log_turn("assistant", response, metadata={"chat_id": chat_id, "user_id": user_id})
+                self.send_message(chat_id, response, reply_to_message_id=message_id)
+            except Exception as e:
+                logger.log_turn("error", str(e), metadata={"chat_id": chat_id})
+                self.send_message(chat_id, f"Erro ao executar após autorização: {e}", reply_to_message_id=message_id)
+
+        t = threading.Thread(target=worker, daemon=True)
+        t.start()
+        self._worker_threads.append(t)
+        self._worker_threads = [t for t in self._worker_threads if t.is_alive()]
+
 
     def run(self) -> None:
         """Start polling loop."""

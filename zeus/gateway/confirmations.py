@@ -72,7 +72,14 @@ class ConfirmationManager:
             return True
 
     def format_question(self, action: str, path: str) -> str:
+        action_title = "Write / Escrita ✍️" if action == "write" else "Delete / Exclusão 🗑️" if action == "delete" else action.capitalize()
         return (
-            f"Permissão de arquivo necessária: {action} em '{path}'.\n"
-            f"Responda: (y) sim, uma vez  |  (a) sempre nesta sessão  |  (p) lembrar  |  (n) negar"
+            f"🔒 File permission required / Permissão de arquivo necessária:\n"
+            f"  • Operation / Operação: {action_title}\n"
+            f"  • File / Arquivo: {path}\n\n"
+            f"Reply / Responda:\n"
+            f"  • (y) yes / sim (once / uma vez)\n"
+            f"  • (a) always / sempre (this session / nesta sessão)\n"
+            f"  • (p) persist / persistir (permanent / permanente)\n"
+            f"  • (n) no / negar"
         )
