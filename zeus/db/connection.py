@@ -90,6 +90,24 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 CREATE INDEX IF NOT EXISTS idx_audit_session ON audit_logs(session_id);
 CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_logs(action);
+
+CREATE TABLE IF NOT EXISTS learnings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT,
+    session_id TEXT,
+    problem TEXT NOT NULL,
+    solution TEXT NOT NULL,
+    tools_used TEXT,
+    tags TEXT,
+    effectiveness_score INTEGER DEFAULT 0,
+    failure_pattern TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_learnings_user ON learnings(user_id);
+CREATE INDEX IF NOT EXISTS idx_learnings_tags ON learnings(tags);
+CREATE INDEX IF NOT EXISTS idx_learnings_created ON learnings(created_at);
 """
 
 

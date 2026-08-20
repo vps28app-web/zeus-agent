@@ -493,3 +493,135 @@ class AuditRepository:
             return [dict(row) for row in rows]
         finally:
             conn.close()
+
+
+class LearningRepository:
+    def __init__(self, db_path: Optional[Path] = None):
+        self.db_path = db_path
+
+    def _parse(self, row: sqlite3.Row) -> Dict[str, Any]:
+        return {
+            "id": row["id"],
+            "user_id": row["user_id"],
+            "session_id": row["session_id"],
+            "problem": row["problem"],
+            "solution": row["solution"],
+            "tools_used": json.loads(row["tools_used"]) if row["tools_used"] else [],
+            "tags": json.loads(row["tags"]) if row["tags"] else [],
+            "effectiveness_score": row["effectiveness_score"],
+            "failure_pattern": row["failure_pattern"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
+    def add(
+        self,
+        problem: str,
+        solution: str,
+        user_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+        tools_used: Optional[List[str]] = None,
+        tags: Optional[List[str]] = None,
+        effectiveness_score: int = 0,
+        failure_pattern: Optional[str] = None,
+    ) -> int:
+        conn = get_connection(self.db_path)
+        try:
+            cursor = conn.execute(
+                """INSERT INTO learnings
+                (user_id, session_id, problem, solution, tools_used, tags, effectiveness_score, failure_pattern)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    user_id,
+                    session_id,
+                    problem,
+                    solution,
+                    json.dumps(tools_used or [], ensure_ascii=False),
+                    json.dumps(tags or [], ensure_ascii=False),
+                    effectiveness_score,
+                    failure_pattern,
+                ),
+            )
+            conn.commit()
+            return cursor.lastrowid or 0
+        finally:
+            conn.close()
+
+    def update_score(self, learning_id: int, delta: int) -> None:
+        conn = get_connection(self.db_path)
+        try:
+            conn.execute(
+                """UPDATE learnings SET
+                    effectiveness_score = effectiveness_score + ?,
+                    updated_at = datetime('now')
+                WHERE id = ?""",
+                (delta, learning_id),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def get(self, learning_id: int) -> Optional[Dict[str, Any]]:
+        conn = get_connection(self.db_path)
+        try:
+            row = conn.execute(
+                "SELECT * FROM learnings WHERE id = ?", (learning_id,)
+            ).fetchone()
+            return self._parse(row) if row else None
+        finally:
+            conn.close()
+
+    def search(
+        self,
+        query: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        user_id: Optional[str] = None,
+        limit: int = 10,
+    ) -> List[Dict[str, Any]]:
+        conn = get_connection(self.db_path)
+        try:
+            conditions = []
+            params: List[Any] = []
+
+            if query:
+                pattern = f"%{query}%"
+                conditions.append("(problem LIKE ? OR solution LIKE ? OR failure_pattern LIKE ?)")
+                params.extend([pattern, pattern, pattern])
+
+            if tags:
+                placeholders = ",".join("?" * len(tags))
+                conditions.append(
+                    f"id IN (SELECT id FROM learnings, json_each(tags) WHERE json_each.value IN ({placeholders}))")
+                params.extend(tags)
+
+            if user_id:
+                conditions.append("(user_id = ? OR user_id IS NULL)")
+                params.append(user_id)
+
+            where = "WHERE " + " AND ".join(conditions) if conditions else ""
+            sql = f"SELECT * FROM learnings {where} ORDER BY effectiveness_score DESC, created_at DESC LIMIT ?"
+            params.append(limit)
+
+            rows = conn.execute(sql, params).fetchall()
+            return [self._parse(row) for row in rows]
+        finally:
+            conn.close()
+
+    def list_recent(self, limit: int = 20) -> List[Dict[str, Any]]:
+        conn = get_connection(self.db_path)
+        try:
+            rows = conn.execute(
+                "SELECT * FROM learnings ORDER BY created_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+            return [self._parse(row) for row in rows]
+        finally:
+            conn.close()
+
+    def delete(self, learning_id: int) -> None:
+        conn = get_connection(self.db_path)
+        try:
+            conn.execute("DELETE FROM learnings WHERE id = ?", (learning_id,))
+            conn.commit()
+        finally:
+            conn.close()
