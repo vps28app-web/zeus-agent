@@ -29,9 +29,11 @@ MODEL_PRESETS = {
         ("claude-haiku-3-5-20241022", "Claude Haiku 3.5"),
     ],
     "google": [
-        ("gemini-2.5-pro-exp-03-25", "Gemini 2.5 Pro"),
-        ("gemini-2.0-flash", "Gemini 2.0 Flash"),
+        ("gemini-3.6-flash", "Gemini 3.6 Flash (Recomendado)"),
+        ("gemini-flash-latest", "Gemini Flash Latest"),
+        ("gemini-3.5-flash", "Gemini 3.5 Flash"),
     ],
+
     "deepseek": [
         ("deepseek-chat", "DeepSeek Chat"),
         ("deepseek-reasoner", "DeepSeek Reasoner"),
@@ -52,7 +54,8 @@ PROVIDER_ENV_VARS = {
     "openrouter": ("OPENROUTER_API_KEY",),
     "openai": ("OPENAI_API_KEY",),
     "anthropic": ("ANTHROPIC_API_KEY",),
-    "google": ("GOOGLE_API_KEY",),
+    "google": ("GEMINI_API_KEY",),
+
     "deepseek": ("DEEPSEEK_API_KEY",),
     "mistral": ("MISTRAL_API_KEY",),
     "ollama": (),
@@ -201,11 +204,16 @@ def _setup_model() -> bool:
     content = _upsert_env_var(content, "ZEUS_MODEL", model)
     _write_env_file(env_path, content)
 
+    # Hot-reload in current process memory
+    os.environ["ZEUS_PROVIDER"] = provider
+    os.environ["ZEUS_MODEL"] = model
+
     print(f"\nConfiguração salva em {env_path}")
     print(f"  Provedor: {provider}")
     print(f"  Modelo:   {model}")
-    print("\nReinicie o Zeus CLI/gateway para usar as novas configurações.")
+    print("\n✅ Modelo atualizado em tempo real na sessão ativa!")
     return True
+
 
 
 if __name__ == "__main__":

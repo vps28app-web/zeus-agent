@@ -26,12 +26,14 @@ class ZeusCommandCompleter(Completer):
         "/clear": "Limpa a tela",
         "/summary": "Mostra resumo da sessão",
         "/skills": "Seleciona um skill set/persona para filtrar ferramentas",
+        "/mcp": "Gerencia servidores Model Context Protocol (MCP)",
         "/models": "Troca o modelo/provedor LLM",
         "/plan": "Cria e executa um plano passo a passo (use /plan bmad <ideia> para análise de modelo de negócio)",
         "/team": "Executa com equipe multi-agente",
         "/exit": "Encerra o Zeus",
         "/help": "Mostra a ajuda de comandos",
     }
+
 
     SKILL_SETS = ["coding", "security", "research", "memory", "all"]
 
@@ -134,25 +136,63 @@ from zeus.tools import terminal, file, web, memory_tools, sandbox_client, sandbo
 
 
 def _ask_file_permission(session: PromptSession, message: str) -> Any:
-    """Interactive confirmation for file write/delete actions."""
+    """Interactive confirmation for file write/delete actions with a dynamic card design (Bilingual EN/PT)."""
     from prompt_toolkit.formatted_text import ANSI
 
+    term_width = _get_term_width()
+    title = " 🔒 FILE PERMISSION / PERMISSÃO DE ARQUIVO "
+    line_length = max(10, term_width - len(title) - 6)
+
+    top = _color("╭──", 33) + _color(title, "1;33") + _color("─" * line_length, 33)
+    bottom = _color("╰" + "─" * (term_width - 3), 33)
+
     print()
-    print(message)
+    print(top)
+    for line in message.splitlines():
+        if any(w in line for w in ("Permitir", "Allow", "Operação", "Operation", "Solicitação", "Request")):
+            print(f"{_color('│', 33)}  {_color(line, '1;37')}")
+        elif any(w in line for w in ("Arquivo:", "File:", "Caminho:", "Path:")):
+            print(f"{_color('│', 33)}  {_color(line, '1;36')}")
+        elif any(w in line for w in ("Options:", "Opções:", "Escolha", "Choose")):
+            print(f"{_color('│', 33)}  {_color(line, 90)}")
+        else:
+            print(f"{_color('│', 33)}  {line}")
+    print(f"{_color('│', 33)}")
+    print(
+        f"{_color('│', 33)}  "
+        f"{_color('[y]', '1;32')} {_color('Yes / Sim (1x)', 37)}   "
+        f"{_color('[a]', '1;34')} {_color('Always / Sempre (Session)', 37)}   "
+        f"{_color('[p]', '1;35')} {_color('Persist / Persistir (Global)', 37)}   "
+        f"{_color('[n]', '1;31')} {_color('No / Negar', 37)}"
+    )
+    print(bottom)
+
     try:
-        answer = session.prompt(ANSI(f"{_color('❓', 33)} Escolha (y/a/p/n): "))
+        answer = session.prompt(
+            ANSI(f"{_color('❓', 33)} Choose / Escolha ({_color('y', '1;32')}/{_color('a', '1;34')}/{_color('p', '1;35')}/{_color('n', '1;31')}): ")
+        )
     except (EOFError, KeyboardInterrupt):
         return False
     return answer.strip().lower()
 
 
-def _load_env() -> None:
+
+
+def _load_env(override: bool = False) -> None:
     """Load .env from ~/.zeus/.env or the project root if present."""
     zeus_home = Path(os.getenv("ZEUS_HOME", os.path.expanduser("~/.zeus")))
     paths = [zeus_home / ".env", Path.cwd() / ".env"]
     for env_file in paths:
         if env_file.exists():
-            load_dotenv(env_file, override=False)
+            load_dotenv(env_file, override=override)
+
+    # Sync GEMINI_API_KEY and GOOGLE_API_KEY aliases
+    gemini_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+    if gemini_key:
+        os.environ["GEMINI_API_KEY"] = gemini_key
+        os.environ["GOOGLE_API_KEY"] = gemini_key
+
+
 
 
 def _format_duration(seconds: float) -> str:
@@ -165,6 +205,21 @@ def _format_duration(seconds: float) -> str:
     hours = minutes // 60
     minutes = minutes % 60
     return f"{hours}h{minutes:02d}m"
+
+
+def _format_tokens(count: int) -> str:
+    """Format token count into human readable notation (e.g., 500, 1.2k, 12k, 15m)."""
+    if count < 1000:
+        return str(count)
+    elif count < 1_000_000:
+        val = count / 1000.0
+        return f"{val:.1f}k" if val < 10 else f"{int(val)}k"
+    elif count < 1_000_000_000:
+        val = count / 1_000_000.0
+        return f"{val:.1f}m" if val < 10 else f"{int(val)}m"
+    else:
+        val = count / 1_000_000_000.0
+        return f"{val:.1f}b" if val < 10 else f"{int(val)}b"
 
 
 def _color(text: str, code: Any) -> str:
@@ -277,6 +332,8 @@ def _print_command_menu() -> None:
         ("/reset", "Reseta a sessão atual (mantém ID, zera métricas)"),
         ("/clear", "Limpa a tela"),
         ("/summary", "Mostra resumo da sessão"),
+        ("/skills", "Seleciona um skill set/persona para filtrar ferramentas"),
+        ("/mcp", "Gerencia servidores Model Context Protocol (MCP)"),
         ("/models", "Troca o modelo/provedor LLM"),
         ("/plan <tarefa>", "Cria e executa um plano passo a passo"),
         ("/plan bmad <ideia>", "Análise BMAD de modelo de negócio"),
@@ -295,6 +352,89 @@ def _print_command_menu() -> None:
         print(f"{_color('│', 33)}  {_color(cmd, '1;33')}{pad}  {desc}")
     print(bottom)
     print()
+
+
+def _print_mcp_menu() -> None:
+    """Print status of configured MCP servers and active tools."""
+    from zeus.mcp import get_mcp_manager
+    mgr = get_mcp_manager()
+    statuses = mgr.list_status()
+
+    term_width = _get_term_width()
+    title = " 🔌 MODEL CONTEXT PROTOCOL (MCP) "
+    line_length = max(10, term_width - len(title) - 6)
+    top = _color("╭──", 33) + _color(title, "1;33") + _color("─" * line_length, 33)
+    bottom = _color("╰" + "─" * (term_width - 3), 33)
+
+    print()
+    print(top)
+    if not statuses:
+        print(f"{_color('│', 33)}  {_color('Nenhum servidor MCP configurado.', 90)}")
+        print(f"{_color('│', 33)}  {_color('Adicione um servidor:', 90)} /mcp add <nome> <comando_ou_url> [args...]")
+    else:
+        for srv in statuses:
+            status_symbol = _color("● Ativo", 32) if srv["active"] else _color("○ Inativo", 31)
+            type_label = _color(f"[{srv['type'].upper()}]", 36)
+            cmd = _color(srv["command_or_url"], 90)
+            tools_info = _color(f"({srv['tool_count']} ferramentas)", 33) if srv["active"] else ""
+            print(f"{_color('│', 33)}  {status_symbol} {_color(srv['name'], '1;37')} {type_label} - {cmd}  {tools_info}")
+
+    print(f"{_color('│', 33)}")
+    print(f"{_color('│', 33)}  {_color('Comandos MCP:', 90)}")
+    print(f"{_color('│', 33)}    • {_color('/mcp list', 33)}                        - Lista servidores e status")
+    print(f"{_color('│', 33)}    • {_color('/mcp add <nome> <cmd|url> [args]', 33)} - Adiciona e conecta novo servidor")
+    print(f"{_color('│', 33)}    • {_color('/mcp remove <nome>', 33)}              - Remove um servidor MCP")
+    print(f"{_color('│', 33)}    • {_color('/mcp reload', 33)}                     - Reconecta todos os servidores")
+    print(bottom)
+    print()
+
+
+def _handle_mcp_command(text: str) -> None:
+    """Handle /mcp subcommands."""
+    from zeus.mcp import get_mcp_manager
+    mgr = get_mcp_manager()
+    parts = text.split()
+    subcmd = parts[1].lower() if len(parts) > 1 else "list"
+
+    if subcmd in ("list", "ls", "status"):
+        _print_mcp_menu()
+    elif subcmd == "reload":
+        print(f"\n{_color('🔄 Reconectando servidores MCP...', 33)}")
+        res = mgr.reload()
+        for name, ok in res.items():
+            status = _color("Conectado", 32) if ok else _color("Falhou", 31)
+            print(f"  • {name}: {status}")
+        print()
+    elif subcmd in ("remove", "rm", "delete"):
+        if len(parts) < 3:
+            print(f"\n{_color('❌ Uso:', '1;31')} /mcp remove <nome_do_servidor>\n")
+            return
+        name = parts[2]
+        if mgr.remove_server(name):
+            print(f"\n{_color('✅ Servidor MCP removido:', 32)} {name}\n")
+        else:
+            print(f"\n{_color('❌ Servidor MCP não encontrado:', '1;31')} {name}\n")
+    elif subcmd in ("add", "connect"):
+        if len(parts) < 3:
+            print(f"\n{_color('❌ Uso:', '1;31')} /mcp add <nome> [comando_ou_url] [args...]")
+            print(f"{_color('Exemplo (Preset):', 90)} /mcp add gemini")
+            print(f"{_color('Exemplo (Custom):', 90)} /mcp add meuteste npx -y @modelcontextprotocol/server-memory\n")
+            return
+        name = parts[2]
+        cmd_or_url = parts[3] if len(parts) > 3 else name
+        args = parts[4:] if len(parts) > 4 else []
+        print(f"\n{_color('🔌 Conectando servidor MCP:', 33)} {name}...")
+        ok = mgr.add_server(name, cmd_or_url, args=args)
+        if ok:
+            client = mgr.clients.get(name)
+            tool_cnt = len(client.tools) if client else 0
+            print(f"{_color('✅ Conectado com sucesso!', 32)} {tool_cnt} ferramentas disponíveis.\n")
+        else:
+            print(f"{_color('❌ Falha ao conectar ao servidor MCP.', '1;31')}\n")
+
+    else:
+        _print_mcp_menu()
+
 
 
 def _print_plan(plan: Dict[str, Any]) -> None:
@@ -356,23 +496,75 @@ def _print_tool_execution(name: Optional[str], args: Any) -> None:
     print(f"  {_color('⚡ Executando:', 35)} {_color(tool_name, '1;35')}({_color(args_str, 90)})")
 
 
-def _build_prompt(logger, metrics, active_skill: Optional[set] = None) -> str:
+def _print_prompt_header(logger, metrics, active_skill: Optional[set] = None) -> None:
     term_width = _get_term_width()
+    provider = os.getenv("ZEUS_PROVIDER", "openrouter")
     model = os.getenv("ZEUS_MODEL", "unknown")
     snap = metrics.snapshot()
-    in_tokens = snap.get("llm_input_tokens", 0)
-    out_tokens = snap.get("llm_output_tokens", 0)
+    in_tokens = _format_tokens(snap.get("llm_input_tokens", 0))
+    out_tokens = _format_tokens(snap.get("llm_output_tokens", 0))
     duration = _format_duration(time.time() - snap.get("started_at", time.time()))
     session_short = logger.session_id[:8]
     skill_label = _current_skill_label(active_skill)
 
-    title = f" 👤 VOCÊ | {model} | in:{in_tokens} out:{out_tokens} | {duration} | {session_short} | {skill_label} "
+    from zeus.mcp.manager import MCPManager
+    mcp_mgr = MCPManager.get_instance()
+    connected = [name for name, c in mcp_mgr.clients.items() if c.is_connected]
+
+    llm_conn = f"🌐 API:{provider}"
+    tools_conn = f"🔌 MCP:{','.join(connected)}" if connected else "⚡ Tools:Native"
+
+    title = f" 👤 VOCÊ | {model} ({llm_conn}) | {tools_conn} | in:{in_tokens} out:{out_tokens} | {duration} | {session_short} | {skill_label} "
     remaining = max(5, term_width - len(title) - 6)
 
     top = _color("╭──", 33) + _color(title, "1;33") + _color("─" * remaining, 33)
-    prompt_arrow = _color("│ ❯ ", "1;33")
+    print(f"\n{top}")
 
-    return f"\n{top}\n{prompt_arrow}"
+
+
+
+active_session: Optional[PromptSession] = None
+
+
+def _ask_file_permission_prompt(msg: str) -> Any:
+    if active_session is None:
+        return False
+
+    term_width = _get_term_width()
+    title = " 🔒 PERMISSÃO DE ARQUIVO NECESSÁRIA "
+    line_len = max(10, term_width - len(title) - 6)
+
+    top = _color("╭──", 33) + _color(title, "1;33") + _color("─" * line_len, 33)
+    bottom = _color("╰" + "─" * (term_width - 3), 33)
+
+    print()
+    print(top)
+    for line in msg.splitlines():
+        if line.strip():
+            print(f"{_color('│', 33)} {line}")
+    print(f"{_color('│', 33)}")
+    print(f"{_color('│', 33)} {_color('Reply / Responda:', '1;37')}")
+    print(f"{_color('│', 33)}   • {_color('(y)', '1;32')} yes / sim {_color('(once / uma vez)', 90)}")
+    print(f"{_color('│', 33)}   • {_color('(a)', '1;36')} always / sempre {_color('(this session / nesta sessão)', 90)}")
+    print(f"{_color('│', 33)}   • {_color('(p)', '1;35')} persist / persistir {_color('(permanent / permanente)', 90)}")
+    print(f"{_color('│', 33)}   • {_color('(n)', '1;31')} no / negar")
+    print(bottom)
+
+    try:
+        answer = active_session.prompt(ANSI(f"{_color('│ ❯ Opção', '1;33')} {_color('[y/a/p/n]:', 90)} "))
+    except (EOFError, KeyboardInterrupt):
+        return "deny"
+
+    choice = answer.strip().lower()
+    if choice in ("a", "always", "sempre"):
+        return "always"
+    if choice in ("p", "persist", "persistir"):
+        return "persist"
+    if choice in ("y", "yes", "s", "sim"):
+        return "once"
+    return "deny"
+
+
 
 
 def main() -> None:
@@ -399,10 +591,6 @@ def main() -> None:
     logger = get_logger(args.session)
     metrics = get_metrics(logger.session_id)
 
-    # Connect interactive file permission callback.
-    from zeus.tools.file import set_file_permission_callback
-    set_file_permission_callback(lambda msg: _ask_file_permission(session, msg))
-
     if args.query:
         logger.log_turn("user", args.query)
         if args.team:
@@ -421,19 +609,37 @@ def main() -> None:
         history=FileHistory(".zeus_history"),
         completer=ZeusCommandCompleter(),
     )
+    global active_session
+    active_session = session
+
+    # Connect interactive file permission callback.
+    from zeus.tools.file import set_file_permission_callback
+    set_file_permission_callback(_ask_file_permission_prompt)
+
     _print_banner(logger, metrics)
     active_skill: Optional[set] = None
 
+    # Auto-start configured MCP servers upon startup
+    try:
+        from zeus.mcp.manager import MCPManager
+        MCPManager.get_instance().start_all()
+    except Exception:
+        pass
+
+
     while True:
-        prompt_text = _build_prompt(logger, get_metrics(logger.session_id), active_skill)
+
+        _print_prompt_header(logger, get_metrics(logger.session_id), active_skill)
+        prompt_arrow = ANSI(_color("│ ❯ ", "1;33"))
         try:
-            user_input = session.prompt(ANSI(prompt_text))
+            user_input = session.prompt(prompt_arrow)
         except KeyboardInterrupt:
             print(f"\n{_color('⚡ Digite /exit ou pressione Ctrl+D para sair.', 90)}")
             continue
         except EOFError:
             print("\nSaindo...")
             break
+
 
         text = user_input.strip()
         if not text:
@@ -465,9 +671,14 @@ def main() -> None:
             _print_command_menu()
             continue
 
+        if text == "/mcp" or text.startswith("/mcp "):
+            _handle_mcp_command(text)
+            continue
+
         if text == "/skills":
             _print_skills_menu(active_skill)
             continue
+
 
         if text.startswith("/skills "):
             skill_name = text[len("/skills "):].strip()
@@ -485,7 +696,9 @@ def main() -> None:
         if text == "/models":
             from zeus.cli.setup_commands import setup_model
             setup_model()
+            _load_env(override=True)
             continue
+
 
         if text.startswith("/team "):
             task = text[len("/team "):].strip()
