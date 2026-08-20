@@ -7,6 +7,9 @@ import time
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from zeus.db.connection import init_db
+from zeus.db.repository import AuditRepository
+
 
 class AuditLogger:
     """Append-only audit log for code execution, shell commands and file mutations."""
@@ -28,7 +31,7 @@ class AuditLogger:
         user_id: Optional[str] = None,
         allowed: bool = True,
     ) -> None:
-        """Write a single audit entry."""
+        """Write a single audit entry to JSONL and SQLite."""
         entry = {
             "timestamp": time.time(),
             "action": action,
@@ -40,6 +43,21 @@ class AuditLogger:
         with self._lock:
             with self._log_path().open("a", encoding="utf-8") as f:
                 f.write(json.dumps(entry, default=str) + "\n")
+
+        try:
+            init_db()
+            repo = AuditRepository()
+            repo.add(
+                timestamp=entry["timestamp"],
+                action=action,
+                session_id=session_id,
+                user_id=user_id,
+                allowed=allowed,
+                details=details,
+            )
+        except Exception:
+            # SQLite persistence is best-effort; JSONL remains the source of truth.
+            pass
 
     def log_execution(
         self,

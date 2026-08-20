@@ -247,28 +247,32 @@ class PermissionManager:
                 self._confirmed_actions.add(category_key)
             return True
 
-        if self.file_level == "read_only" and action in ("write", "delete"):
-            message = (
-                f"File permission is read_only. Allow {action} on {path}?\n"
-                f"Options: (y) yes, once  |  (a) yes, always this session  |  (p) yes, persist  |  (n) no"
-            )
-            answer = self._confirm(message)
-            choice = self._normalize_confirmation_answer(answer)
-            if choice == "deny" or choice is None:
-                return False
-            if choice == "always":
-                with self._lock:
-                    self._confirmed_actions.add(category_key)
-                return True
-            if choice == "persist":
-                with self._lock:
-                    self._confirmed_actions.add(category_key)
-                self._save_persistent_confirmation(category_key)
-                return True
-            # "once" or legacy truthy answer
-            return True
+        action_label = "Write / Escrita ✍️" if action == "write" else "Delete / Exclusão 🗑️"
+        message = (
+            f"File permission request / Solicitação de permissão de arquivo:\n"
+            f"  • Operation / Operação: {action_label}\n"
+            f"  • File / Arquivo: {path}\n"
+            f"  • Permission level / Nível de permissão atual: {self.file_level}"
+        )
+        answer = self._confirm(message)
 
-        return False
+        choice = self._normalize_confirmation_answer(answer)
+        if choice == "deny" or choice is None:
+            return False
+        if choice == "always":
+            with self._lock:
+                self._confirmed_actions.add(category_key)
+            return True
+        if choice == "persist":
+            with self._lock:
+                self._confirmed_actions.add(category_key)
+            self._save_persistent_confirmation(category_key)
+            return True
+        # "once" or legacy truthy answer
+        with self._lock:
+            self._once_confirmed_actions.add(action_key)
+        return True
+
 
     def ensure_write_allowed(self, path: Path) -> None:
         """Raise PermissionRequired if write is not explicitly allowed."""
