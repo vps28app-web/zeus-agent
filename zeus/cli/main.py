@@ -28,6 +28,7 @@ class ZeusCommandCompleter(Completer):
         "/skills": "Seleciona um skill set/persona para filtrar ferramentas",
         "/mcp": "Gerencia servidores Model Context Protocol (MCP)",
         "/config": "Gerencia configurações do Zeus",
+        "/learn": "Aprendizados passados: /learn list, /learn search <query>, /learn add <problema> | <solução>",
         "/models": "Troca o modelo/provedor LLM",
         "/plan": "Cria e executa um plano passo a passo (use /plan bmad <ideia> para análise de modelo de negócio)",
         "/team": "Executa com equipe multi-agente",
@@ -139,6 +140,7 @@ from zeus.tools import (  # noqa: E402,F401
     database,
     file,
     git,
+    learning_tools,
     memory_tools,
     sandbox,
     sandbox_client,
@@ -349,6 +351,7 @@ def _print_command_menu() -> None:
         ("/skills", "Seleciona um skill set/persona para filtrar ferramentas"),
         ("/mcp", "Gerencia servidores Model Context Protocol (MCP)"),
         ("/config", "Gerencia configurações do Zeus (get/set/list)"),
+        ("/learn", "Aprendizados passados (list/search/add)"),
         ("/models", "Troca o modelo/provedor LLM"),
         ("/plan <tarefa>", "Cria e executa um plano passo a passo"),
         ("/plan bmad <ideia>", "Análise BMAD de modelo de negócio"),
@@ -449,6 +452,101 @@ def _handle_mcp_command(text: str) -> None:
 
     else:
         _print_mcp_menu()
+
+
+def _print_learning_menu() -> None:
+    """Print a visual menu for the /learn command."""
+    term_width = _get_term_width()
+    title = " 📚 APRENDIZADOS "
+    line_length = max(10, term_width - len(title) - 6)
+    top = _color("╭──", 33) + _color(title, "1;33") + _color("─" * line_length, 33)
+    bottom = _color("╰" + "─" * (term_width - 3), 33)
+
+    print()
+    print(top)
+    print(f"{_color('│', 33)}  {_color('Comandos:', 90)}")
+    print(f"{_color('│', 33)}    • {_color('/learn', 33)}                       - Menu de aprendizados")
+    print(f"{_color('│', 33)}    • {_color('/learn list', 33)}                  - Lista recentes")
+    print(f"{_color('│', 33)}    • {_color('/learn search <query>', 33)}        - Busca aprendizados")
+    print(f"{_color('│', 33)}    • {_color('/learn add <p> | <s> [tags]', 33)} - Adiciona aprendizado manual")
+    print(f"{_color('│', 33)}    • {_color('/learn rate <id> <+1/-1>', 33)}    - Avalia aprendizado")
+    print(bottom)
+    print()
+
+
+def _handle_learning_command(text: str) -> None:
+    """Handle /learn subcommands."""
+    from zeus.memory.learning import LearningStore
+
+    parts = text.split(maxsplit=1)
+    subcmd = parts[1].lower().strip() if len(parts) > 1 else "menu"
+
+    store = LearningStore()
+
+    if subcmd == "menu" or subcmd == "":
+        _print_learning_menu()
+        return
+
+    if subcmd == "list":
+        learnings = store.list_recent(limit=10)
+        print(f"\n{_color('📚 Aprendizados recentes:', 33)}")
+        for item in learnings:
+            score = item.get("effectiveness_score", 0)
+            score_color = 32 if score > 0 else 31 if score < 0 else 90
+            item_id = item.get("id")
+            item_problem = item.get("problem", "")[:60]
+            item_tags = ", ".join(item.get("tags", []))
+            print(f"  {_color(f'[{item_id}]', '1;33')} {item_problem}")
+            print(f"    {_color('Score:', score_color)} {score} {_color('Tags:', 90)} {item_tags}")
+        print()
+        return
+
+    if subcmd.startswith("search "):
+        query = subcmd[len("search "):].strip()
+        results = store.search(query, limit=5)
+        print(f"\n{_color('🔍 Resultados:', 33)} {query}\n")
+        for item in results:
+            item_id = item.get("id")
+            item_problem = item.get("problem", "")
+            item_solution = item.get("solution", "")[:120]
+            print(f"  {_color(f'[{item_id}]', '1;33')} {item_problem}")
+            print(f"    {_color('Solução:', 90)} {item_solution}")
+        print()
+        return
+
+    if subcmd.startswith("add "):
+        payload = subcmd[len("add "):].strip()
+        if "|" not in payload:
+            print(f"\n{_color('❌ Uso:', '1;31')} /learn add <problema> | <solução> [tags:tag1,tag2]\n")
+            return
+        problem, rest = payload.split("|", 1)
+        solution = rest.strip()
+        tags = []
+        if "tags:" in solution:
+            solution, tags_str = solution.rsplit("tags:", 1)
+            tags = [t.strip() for t in tags_str.split(",") if t.strip()]
+        learning_id = store.save(
+            problem=problem.strip(),
+            solution=solution.strip(),
+            tags=list(set(tags + ["manual"])),
+            effectiveness_score=2,
+        )
+        print(f"\n{_color('✅ Aprendizado salvo:', 32)} ID {learning_id}\n")
+        return
+
+    if subcmd.startswith("rate "):
+        rest = subcmd[len("rate "):].strip()
+        tokens = rest.split()
+        if len(tokens) < 2 or not tokens[0].isdigit() or tokens[1] not in ("+1", "-1"):
+            print(f"\n{_color('❌ Uso:', '1;31')} /learn rate <id> <+1/-1>\n")
+            return
+        learning_id = int(tokens[0])
+        helpful = tokens[1] == "+1"
+        store.rate(learning_id, helpful)
+        print(f"\n{_color('✅ Feedback registrado:', 32)} ID {learning_id} {'+1' if helpful else '-1'}\n")
+        return
+
+    _print_learning_menu()
 
 
 def _print_config_menu(config: Dict[str, Any]) -> None:
@@ -763,6 +861,10 @@ def main() -> None:
 
         if text == "/config" or text.startswith("/config "):
             _handle_config_command(text)
+            continue
+
+        if text == "/learn" or text.startswith("/learn "):
+            _handle_learning_command(text)
             continue
 
         if text == "/skills":

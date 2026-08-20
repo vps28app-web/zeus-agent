@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 from zeus.core.registry import REGISTRY
 from zeus.core.router import chat
 from zeus.core.schemas import AgentDecision, PlanOutput
+from zeus.memory.learning import LearningStore
 from zeus.memory.reasoning import ReasoningMemory
 from zeus.observability import get_metrics, get_tracer, report_summary
 
@@ -46,6 +47,7 @@ You MUST respond with a single valid JSON object matching this exact schema:
 8. **Replan on failure.** If a tool returns an error or unexpected result, explain what went wrong in `reasoning` and choose a different approach.
 9. **Learn from reasoning.** When you successfully solve a task, your reasoning may be saved to help with similar future tasks.
 10. **Strict Tool Verification.** Only call tools explicitly provided in your active tools schema. If an MCP server or tool is disabled or removed, do not attempt to invoke it; use native tools instead.
+11. **Learn from the past.** When facing a task, check if past learnings or reasoning memories provide a relevant solution pattern; prefer proven approaches.
 """
 
 
@@ -236,9 +238,14 @@ def run_agent(
     reasoning_memory = ReasoningMemory(user_id=user_id) if enable_reasoning_memory else None
     reasoning_context = reasoning_memory.format_context(user_input) if reasoning_memory else ""
 
+    learning_store = LearningStore(user_id=user_id)
+    learning_context = learning_store.format_context(user_input)
+
     system_prompt = SYSTEM_PROMPT
     if reasoning_context:
         system_prompt += f"\n\n{reasoning_context}\n"
+    if learning_context:
+        system_prompt += f"\n\n{learning_context}\n"
     if profile_context:
         system_prompt += f"\n\n## User Profile\n{profile_context}\n"
     if mem_context:
@@ -406,6 +413,13 @@ def run_agent(
             final_response = guardrails.sanitize_output(final_response)
             if reasoning_memory and last_reasoning:
                 reasoning_memory.save(user_input, last_reasoning, final_response)
+            if learning_store and session_id:
+                try:
+                    from zeus.memory.session_log import get_session_messages
+                    turns = get_session_messages(session_id, limit=50)
+                    learning_store.extract_from_session(session_id, turns)
+                except Exception:
+                    pass
             tracer.finish_span(status="ok")
             return final_response
 
