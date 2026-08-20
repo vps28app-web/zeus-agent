@@ -1,3 +1,4 @@
+.env
 .venv/
 __pycache__/
 *.pyc
@@ -11,3 +12,6 @@ sandbox/rootfs/
 sandbox/sandbox
 gateway/whatsapp/baileys/node_modules/
 gateway/whatsapp/baileys/dist/
+*.log
+coverage/
+.DS_Store
