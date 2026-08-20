@@ -30,7 +30,21 @@ cd sandbox && go build -o sandbox ./cmd/sandbox && cd ..
 
 ## Configuração
 
-Crie `.env` na raiz do projeto:
+Crie `.env` na raiz do projeto ou use `~/.zeus/.env`. Você pode gerenciar variáveis via CLI:
+
+```bash
+# Ver configuração atual
+/config
+
+# Definir provider/modelo em tempo real
+/config set ZEUS_PROVIDER openrouter
+/config set ZEUS_MODEL openrouter/auto
+
+# Listar modelos de um provider
+/config list-models google
+```
+
+Exemplo de `.env`:
 
 ```bash
 # Provedor
@@ -49,6 +63,21 @@ OPENCODE_GO_API_KEY=sk-...
 ZEUS_SANDBOX_URL=http://127.0.0.1:9876
 ```
 
+## Model Context Protocol (MCP)
+
+O Zeus pode se conectar a servidores MCP externos para expandir suas ferramentas:
+
+```bash
+# No CLI interativo
+/mcp add gemini
+/mcp add filesystem
+/mcp add memory
+/mcp list
+/mcp reload
+```
+
+Ferramentas MCP são registradas automaticamente no agente com o prefixo `mcp_<servidor>_`.
+
 ## Uso rápido
 
 ```bash
@@ -58,11 +87,15 @@ python -m zeus.cli
 # Query única
 python -m zeus.cli -q "liste arquivos do diretório atual"
 
-# Com provider específico
-python -m zeus.cli -q "liste arquivos" --provider openai --model gpt-4o
-
-# Equipe multi-agente
-python -m zeus.cli --team "tarefa complexa"
+# Comandos interativos úteis
+/help       # menu de comandos
+/skills     # selecionar persona
+/config     # ver configurações
+/config set ZEUS_PROVIDER openai
+/mcp add gemini
+/models     # trocar modelo/provedor
+/plan       # criar e executar plano
+/team       # equipe multi-agente
 ```
 
 ## Ferramentas
@@ -99,3 +132,5 @@ sudo ./sandbox/sandbox -addr 127.0.0.1:9876
 - `docs/USAGE.md` — uso completo
 - `docs/TOOLS.md` — todas as 29 ferramentas
 - `docs/SANDBOX.md` — detalhes da sandbox
+- `docs/MCP.md` — Model Context Protocol
+- `docs/CONFIG.md` — gerenciamento de configurações
