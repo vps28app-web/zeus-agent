@@ -27,6 +27,7 @@ type Request struct {
 	WorkDir    string            `json:"work_dir,omitempty"`
 	CpuPct     int               `json:"cpu_pct,omitempty"`
 	MemoryMB   int               `json:"memory_mb,omitempty"`
+	MaxPids    int               `json:"max_pids,omitempty"`
 }
 
 // Run executes a command in a restricted child process using Linux namespaces.
@@ -39,6 +40,9 @@ func Run(ctx context.Context, req Request) Result {
 	}
 	if req.MemoryMB <= 0 {
 		req.MemoryMB = 128
+	}
+	if req.MaxPids <= 0 {
+		req.MaxPids = 64
 	}
 
 	execCtx, cancel := context.WithTimeout(ctx, time.Duration(req.TimeoutSec)*time.Second)
@@ -79,7 +83,8 @@ func Run(ctx context.Context, req Request) Result {
 	cmd.Stderr = &stderr
 
 	// cgroup setup before start
-	cgroupCleanup, err := applyCgroups(req.MemoryMB, req.CpuPct)
+	cgroupCleanup, err := applyCgroups(req.MemoryMB, req.CpuPct, req.MaxPids)
+
 	if err != nil {
 		return Result{Error: fmt.Sprintf("failed to apply cgroups: %v", err)}
 	}

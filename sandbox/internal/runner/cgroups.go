@@ -8,8 +8,8 @@ import (
 )
 
 // applyCgroups creates a temporary cgroup v2 subtree for the current process
-// and returns a cleanup function. It limits memory and CPU weight.
-func applyCgroups(memoryMB, cpuPct int) (func(), error) {
+// and returns a cleanup function. It limits memory, CPU weight, and maximum PIDs.
+func applyCgroups(memoryMB, cpuPct, maxPids int) (func(), error) {
 	cgroupBase := "/sys/fs/cgroup"
 	if _, err := os.Stat(cgroupBase); os.IsNotExist(err) {
 		return func() {}, nil // cgroups v2 not available
@@ -42,6 +42,12 @@ func applyCgroups(memoryMB, cpuPct int) (func(), error) {
 	}
 	if err := os.WriteFile(filepath.Join(slicePath, "cpu.weight"), []byte(strconv.Itoa(weight)), 0700); err != nil {
 		// cpu controller might not be available; ignore
+	}
+
+	if maxPids > 0 {
+		if err := os.WriteFile(filepath.Join(slicePath, "pids.max"), []byte(strconv.Itoa(maxPids)), 0700); err != nil {
+			// pids controller might not be available; ignore
+		}
 	}
 
 	cleanup := func() {

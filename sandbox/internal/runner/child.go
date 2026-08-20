@@ -10,6 +10,28 @@ import (
 	"syscall"
 )
 
+// mountProcReadonly mounts /proc with restrictive flags to reduce kernel attack surface.
+func mountProcReadonly(root string) error {
+	procDir := filepath.Join(root, "proc")
+	if err := syscall.Mount("proc", procDir, "proc", syscall.MS_NOSUID|syscall.MS_NODEV|syscall.MS_NOEXEC|syscall.MS_RDONLY, ""); err != nil {
+		return fmt.Errorf("mount proc readonly: %w", err)
+	}
+	// Hide sensitive proc entries inside the chroot.
+	for _, entry := range []string{"kcore", "kallsyms", "sched_debug", "sysrq-trigger", "sys"} {
+		target := filepath.Join(procDir, entry)
+		_ = os.RemoveAll(target)
+	}
+	return nil
+}
+
+// disableCoreDumps disables core dumps for the current process.
+func disableCoreDumps() error {
+	if err := syscall.Setrlimit(syscall.RLIMIT_CORE, &syscall.Rlimit{Cur: 0, Max: 0}); err != nil {
+		return fmt.Errorf("setrlimit RLIMIT_CORE: %w", err)
+	}
+	return nil
+}
+
 // RunChild is invoked by the sandbox binary itself when started with
 // --sandbox-child. It sets up the isolated filesystem and runs the command.
 // Full isolation (chroot, private mounts) requires root; without root it
@@ -53,7 +75,9 @@ func RunChild(command string) error {
 			_ = os.MkdirAll(filepath.Join(root, filepath.Dir(dev)), 0755)
 			_ = exec.Command("cp", "-a", dev, filepath.Join(root, dev)).Run()
 		}
-		_ = syscall.Mount("proc", filepath.Join(root, "proc"), "proc", 0, "")
+		if err := mountProcReadonly(root); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: proc mount failed: %v\n", err)
+		}
 
 		// Copy sandbox binary into chroot so it can re-exec itself.
 		selfPath, err := os.Executable()
@@ -102,6 +126,8 @@ func ExecInternalChild() {
 			os.Exit(1)
 		}
 	}
+
+	_ = disableCoreDumps()
 
 	// Install seccomp-bpf filter. If it fails, log and continue with other isolations.
 	if err := InstallSeccomp(); err != nil {
