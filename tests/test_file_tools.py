@@ -1,15 +1,19 @@
 """Unit tests for enhanced file tools in zeus/tools/file.py."""
 
-
 import pytest
 
 from zeus.security.permissions import PermissionManager
 from zeus.tools.file import (
     copy_file,
+    delete_file,
     grep_search,
+    list_directory,
     move_file,
+    read_file,
     replace_file_content,
+    search_files,
     set_file_permission_manager,
+    write_file,
 )
 
 
@@ -108,3 +112,63 @@ def test_grep_search(tmp_path):
     assert str(f1) in paths
     assert str(f2) in paths
     assert str(f3) not in paths
+
+
+def test_read_file_basic(tmp_path):
+    f = tmp_path / "hello.txt"
+    f.write_text("line1\nline2\nline3\n", encoding="utf-8")
+
+    res = read_file(str(f), limit=2, offset=1)
+    assert res["status"] == "success"
+    assert res["lines"] == ["line1", "line2"]
+    assert res["total_lines"] == 3
+
+
+def test_write_file_and_read_back(tmp_path):
+    f = tmp_path / "out.txt"
+
+    res = write_file(str(f), "hello world")
+    assert res["status"] == "success"
+    assert res["action"] == "created"
+    assert f.read_text(encoding="utf-8") == "hello world"
+
+    res2 = write_file(str(f), "hello zeus")
+    assert res2["action"] == "modified"
+    assert "diff" in res2
+    assert "old_content" in res2
+
+
+def test_list_directory(tmp_path):
+    (tmp_path / "a.txt").write_text("a", encoding="utf-8")
+    (tmp_path / "sub").mkdir()
+
+    res = list_directory(str(tmp_path))
+    names = {e["name"] for e in res["entries"]}
+    assert "a.txt" in names
+    assert "sub" in names
+
+
+def test_delete_file(tmp_path):
+    f = tmp_path / "delete_me.txt"
+    f.write_text("x", encoding="utf-8")
+
+    res = delete_file(str(f))
+    assert res["status"] == "success"
+    assert not f.exists()
+
+
+def test_search_files(tmp_path):
+    (tmp_path / "a.py").write_text("def foo(): pass\n", encoding="utf-8")
+    (tmp_path / "b.py").write_text("def bar(): pass\n", encoding="utf-8")
+
+    res = search_files("def .*\\(\\):", str(tmp_path))
+    assert res["status"] == "success"
+    assert res["total_matches"] == 2
+
+
+def test_permission_required_blocks_write_outside_project(tmp_path):
+    outside = tmp_path.parent / "outside.txt"
+
+    res = write_file(str(outside), "x")
+    assert "permission_required" in res
+    assert not outside.exists()
