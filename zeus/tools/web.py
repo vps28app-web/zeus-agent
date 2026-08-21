@@ -1,65 +1,214 @@
-"""Web search and content extraction tools."""
+"""Web search and LLM-friendly content extraction tools."""
 
-from typing import Any, Dict
+import os
+from typing import Any, Dict, List, Optional
+import urllib.parse
 
 from zeus.core.registry import register_tool
 
 
 def web_search(query: str, limit: int = 5) -> Dict[str, Any]:
-    """Simple web search using configured search backend."""
-    # Placeholder: real implementation would use serper, brave, or similar
-    return {
-        "query": query,
-        "results": [],
-        "note": "Web search requires a search API key (SERPER_API_KEY or BRAVE_API_KEY).",
-    }
+    """Search the web using DuckDuckGo or configured search APIs (Tavily, Serper, Brave)."""
+    # 1. Check Tavily API
+    tavily_key = os.getenv("TAVILY_API_KEY")
+    if tavily_key:
+        try:
+            import requests
+            resp = requests.post(
+                "https://api.tavily.com/search",
+                json={"api_key": tavily_key, "query": query, "max_results": limit},
+                timeout=15,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                results = [
+                    {"title": item.get("title"), "url": item.get("url"), "snippet": item.get("content")}
+                    for item in data.get("results", [])
+                ]
+                return {"query": query, "provider": "tavily", "results": results}
+        except Exception:
+            pass
+
+    # 2. Check Serper API
+    serper_key = os.getenv("SERPER_API_KEY")
+    if serper_key:
+        try:
+            import requests
+            resp = requests.post(
+                "https://google.serper.dev/search",
+                headers={"X-API-KEY": serper_key, "Content-Type": "application/json"},
+                json={"q": query, "num": limit},
+                timeout=15,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                results = [
+                    {"title": item.get("title"), "url": item.get("link"), "snippet": item.get("snippet")}
+                    for item in data.get("organic", [])
+                ]
+                return {"query": query, "provider": "serper", "results": results}
+        except Exception:
+            pass
+
+    # 3. Free Fallback: DuckDuckGo (DDGS)
+    try:
+        from ddgs import DDGS
+        results = []
+        with DDGS() as ddgs:
+            ddg_results = ddgs.text(query, max_results=limit)
+            if ddg_results:
+                for item in ddg_results:
+                    results.append({
+                        "title": item.get("title"),
+                        "url": item.get("href"),
+                        "snippet": item.get("body"),
+                    })
+        return {"query": query, "provider": "duckduckgo", "results": results}
+    except Exception as e:
+        return {
+            "query": query,
+            "provider": "error",
+            "results": [],
+            "error": f"Search failed: {e}",
+        }
 
 
 def web_extract(url: str, char_limit: int = 15000) -> Dict[str, Any]:
-    """Extract content from a URL."""
+    """Extract readable LLM-friendly Markdown content from a URL."""
     try:
         import requests
         from bs4 import BeautifulSoup
 
-        headers = {"User-Agent": "ZeusAgent/0.1.0"}
-        response = requests.get(url, headers=headers, timeout=30)
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 ZeusAgent/1.0"
+            )
+        }
+        response = requests.get(url, headers=headers, timeout=25)
         response.raise_for_status()
-        soup = BeautifulSoup(response.text, "html.parser")
-        for tag in soup(["script", "style", "nav", "footer"]):
+
+        encoding = response.encoding or "utf-8"
+        soup = BeautifulSoup(response.content.decode(encoding, errors="ignore"), "html.parser")
+
+        # Decompose noise tags
+        for tag in soup(["script", "style", "nav", "footer", "iframe", "svg", "noscript", "form", "aside"]):
             tag.decompose()
-        text = soup.get_text(separator="\n", strip=True)
-        return {"url": url, "title": soup.title.string if soup.title else None, "content": text[:char_limit]}
+
+        page_title = soup.title.string.strip() if soup.title and soup.title.string else None
+
+        # Convert to Markdown using html2text if available
+        markdown_text = ""
+        try:
+            import html2text
+            h = html2text.HTML2Text()
+            h.ignore_links = False
+            h.ignore_images = True
+            h.ignore_emphasis = False
+            h.body_width = 0
+            markdown_text = h.handle(str(soup))
+        except Exception:
+            markdown_text = soup.get_text(separator="\n", strip=True)
+
+        cleaned_text = markdown_text.strip()
+        truncated = len(cleaned_text) > char_limit
+        final_content = cleaned_text[:char_limit]
+
+        return {
+            "status": "success",
+            "url": url,
+            "title": page_title,
+            "char_count": len(final_content),
+            "truncated": truncated,
+            "content": final_content,
+        }
+    except Exception as e:
+        return {"url": url, "error": str(e)}
+
+
+def web_scrape_links(url: str, limit: int = 30) -> Dict[str, Any]:
+    """Extract hyperlinked URLs and anchor text from a webpage."""
+    try:
+        import requests
+        from bs4 import BeautifulSoup
+
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 ZeusAgent/1.0"
+            )
+        }
+        response = requests.get(url, headers=headers, timeout=20)
+        response.raise_for_status()
+
+        soup = BeautifulSoup(response.text, "html.parser")
+        links: List[Dict[str, str]] = []
+        seen_urls = set()
+
+        for a in soup.find_all("a", href=True):
+            href = a["href"].strip()
+            text = a.get_text(strip=True)
+            if not href or href.startswith(("#", "javascript:", "mailto:", "tel:")):
+                continue
+
+            full_url = urllib.parse.urljoin(url, href)
+            if full_url not in seen_urls:
+                seen_urls.add(full_url)
+                links.append({"text": text or full_url, "url": full_url})
+                if len(links) >= limit:
+                    break
+
+        return {
+            "status": "success",
+            "url": url,
+            "total_links": len(links),
+            "links": links,
+        }
     except Exception as e:
         return {"url": url, "error": str(e)}
 
 
 register_tool(
     name="web_search",
-    description="Search the web for a query.",
+    description="Search the web for real-time information (supports DuckDuckGo, Tavily, Serper).",
     parameters={
         "type": "object",
         "properties": {
-            "query": {"type": "string"},
-            "limit": {"type": "integer", "default": 5},
+            "query": {"type": "string", "description": "Search query text."},
+            "limit": {"type": "integer", "description": "Max results count.", "default": 5},
         },
         "required": ["query"],
     },
     handler=web_search,
-    required_env=["SERPER_API_KEY"],
     tags=["web", "research"],
 )
 
 register_tool(
     name="web_extract",
-    description="Extract readable content from a URL.",
+    description="Extract readable content from a URL converted into clean LLM-friendly Markdown.",
     parameters={
         "type": "object",
         "properties": {
-            "url": {"type": "string"},
-            "char_limit": {"type": "integer", "default": 15000},
+            "url": {"type": "string", "description": "Target webpage URL."},
+            "char_limit": {"type": "integer", "description": "Max characters of content to return.", "default": 15000},
         },
         "required": ["url"],
     },
     handler=web_extract,
+    tags=["web", "research"],
+)
+
+register_tool(
+    name="web_scrape_links",
+    description="Extract all hyperlinks and anchor texts from a webpage URL.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "url": {"type": "string", "description": "Target webpage URL."},
+            "limit": {"type": "integer", "description": "Max links to return.", "default": 30},
+        },
+        "required": ["url"],
+    },
+    handler=web_scrape_links,
     tags=["web", "research"],
 )

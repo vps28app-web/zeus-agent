@@ -47,3 +47,35 @@ def test_format_tokens():
     assert _format_tokens(850000) == "850k"
     assert _format_tokens(15000000) == "15m"
     assert _format_tokens(2500000000) == "2.5b"
+
+
+def test_format_markdown_for_cli():
+    from zeus.cli.main import _format_markdown_for_cli
+    md = "# Title\n\n## Subtitle\n- **Item 1**: `code` text\n```python\nprint('hello')\n```"
+    lines = _format_markdown_for_cli(md, max_width=60)
+    text_out = "\n".join(lines)
+    assert "TITLE" in text_out
+    assert "Subtitle" in text_out
+    assert "Item 1" in text_out
+    assert "CODE" in text_out
+    assert "print('hello')" in text_out
+
+
+def test_print_agent_response_card_status():
+    from zeus.cli.main import _print_agent_response
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        _print_agent_response("All systems operational.", title="TEST", status="ok")
+    output = buf.getvalue()
+    assert "Resposta Exata" not in output
+    assert "TEST" in output
+    assert "All systems operational." in output
+
+    buf2 = io.StringIO()
+    with redirect_stdout(buf2):
+        _print_agent_response("Permission denied", title="SECURITY", status="warning")
+    output2 = buf2.getvalue()
+    assert "Atenção" in output2
+    assert "SECURITY" in output2
+
+

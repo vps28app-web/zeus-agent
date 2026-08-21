@@ -10,7 +10,7 @@ readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.8"
 authors = [
-    {name = "Zeus Team"}
+    {name = "vps28"}
 ]
 keywords = ["agent", "ai", "llm", "tool-use", "harness"]
 classifiers = [

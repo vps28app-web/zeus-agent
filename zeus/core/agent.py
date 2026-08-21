@@ -1,13 +1,14 @@
 """Core agent loop: ReAct pattern (reason -> act -> observe)."""
 
 import json
+import re
 import time
 import traceback
 from typing import Any, Dict, List, Optional
 
 from zeus.core.registry import REGISTRY
 from zeus.core.router import chat
-from zeus.core.schemas import AgentDecision, PlanOutput
+from zeus.core.schemas import AgentDecision, PlanOutput, ToolCallDecision
 from zeus.memory.learning import LearningStore
 from zeus.memory.reasoning import ReasoningMemory
 from zeus.observability import get_metrics, get_tracer, report_summary
@@ -52,30 +53,106 @@ You MUST respond with a single valid JSON object matching this exact schema:
 
 
 
+def _clean_model_artifacts(text: str) -> str:
+    """Strip XML tool call tags and artifacts emitted by LLMs."""
+    if not text:
+        return ""
+    cleaned = re.sub(r"</?(?:parameter|function|tool_call|invoke|tool_name)[^>]*>", "", text, flags=re.IGNORECASE)
+    return cleaned.strip()
+
+
+def clean_agent_response(text: str) -> str:
+    """Clean raw JSON/XML metadata artifacts from LLM response text for presentation."""
+    if not text or not isinstance(text, str):
+        return ""
+
+    cleaned = _clean_model_artifacts(text)
+
+    # Check if cleaned text is raw JSON containing reasoning / response / tool_calls
+    if ("\"reasoning\"" in cleaned or "\"response\"" in cleaned or "\"tool_calls\"" in cleaned) and ("{" in cleaned and "}" in cleaned):
+        try:
+            start = cleaned.find("{")
+            end = cleaned.rfind("}")
+            if start != -1 and end != -1 and end > start:
+                data = json.loads(cleaned[start:end + 1])
+                if isinstance(data, dict):
+                    resp = data.get("response")
+                    reasoning = data.get("reasoning")
+                    if resp and isinstance(resp, str) and resp.strip() and resp.strip().lower() != "null":
+                        return resp.strip()
+                    if reasoning and isinstance(reasoning, str) and reasoning.strip():
+                        return reasoning.strip()
+        except Exception:
+            resp_match = re.search(r'"response"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"', cleaned)
+            if resp_match:
+                val = resp_match.group(1).replace("\\n", "\n").replace('\\"', '"')
+                if val.strip() and val.strip().lower() != "null":
+                    return val.strip()
+            reas_match = re.search(r'"reasoning"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"', cleaned)
+            if reas_match:
+                val = reas_match.group(1).replace("\\n", "\n").replace('\\"', '"')
+                if val.strip():
+                    return val.strip()
+
+    # Remove code fence wrapper if it only wraps raw JSON
+    if cleaned.startswith("```"):
+        lines = cleaned.splitlines()
+        if len(lines) >= 2 and lines[0].startswith("```"):
+            cleaned = "\n".join(lines[1:-1] if lines[-1].startswith("```") else lines[1:])
+
+    return cleaned.strip()
+
+
 def _parse_decision(content: Optional[str]) -> AgentDecision:
     """Parse the LLM response into a structured AgentDecision."""
     if not content:
         return AgentDecision(reasoning="empty response", response="No response.")
 
-    text = content.strip()
+    text = _clean_model_artifacts(content)
     if text.startswith("```"):
         text = text.split("\n", 1)[1].rsplit("\n", 1)[0]
         text = text.removeprefix("json").strip()
 
+    # 1. Try standard Pydantic JSON parsing
     try:
         return AgentDecision.model_validate_json(text)
-    except Exception as e:
-        start = text.find("{")
-        end = text.rfind("}")
-        if start != -1 and end != -1 and end > start:
+    except Exception:
+        pass
+
+    # 2. Try substring JSON parsing with fallback mapping
+    start = text.find("{")
+    end = text.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        json_str = text[start : end + 1]
+        try:
+            return AgentDecision.model_validate_json(json_str)
+        except Exception:
             try:
-                return AgentDecision.model_validate_json(text[start : end + 1])
+                data = json.loads(json_str)
+                if isinstance(data, dict):
+                    reasoning = data.get("reasoning") or "Model reasoning"
+                    response = data.get("response")
+                    if isinstance(response, str) and (not response.strip() or response.strip().lower() == "null"):
+                        response = None
+                    raw_calls = data.get("tool_calls") or []
+                    tool_calls = []
+                    for item in raw_calls:
+                        if isinstance(item, dict) and "name" in item:
+                            tool_calls.append(ToolCallDecision(name=item["name"], arguments=item.get("arguments") or {}))
+                    return AgentDecision(
+                        reasoning=reasoning if isinstance(reasoning, str) else str(reasoning),
+                        response=response if isinstance(response, str) else None,
+                        tool_calls=tool_calls,
+                    )
             except Exception:
                 pass
-        return AgentDecision(
-            reasoning=f"failed to parse model response: {e}",
-            response=text,
-        )
+
+    # 3. Fallback: extract clean human-readable response
+    extracted_clean = clean_agent_response(text)
+    return AgentDecision(
+        reasoning="Extracted response",
+        response=extracted_clean or text,
+    )
 
 
 def _tool_calls_from_decision(decision: AgentDecision) -> List[Dict[str, Any]]:
@@ -208,6 +285,7 @@ def run_agent(
     stream: bool = False,
     stream_callback=None,
     tool_callback=None,
+    tool_result_callback=None,
     enable_reasoning_memory: bool = True,
     tool_filter: Optional[set] = None,
 ) -> Any:
@@ -239,6 +317,7 @@ def run_agent(
     reasoning_context = reasoning_memory.format_context(user_input) if reasoning_memory else ""
 
     learning_store = LearningStore(user_id=user_id)
+    learning_store.process_user_feedback(user_input, session_id=session_id)
     learning_context = learning_store.format_context(user_input)
 
     system_prompt = SYSTEM_PROMPT
@@ -314,6 +393,8 @@ def run_agent(
                     if tool_callback:
                         tool_callback(fn_name, fn_args)
                     result = execute_tool_call(call, metrics, tracer)
+                    if tool_result_callback:
+                        tool_result_callback(fn_name, fn_args, result)
                     messages.append(
                         {
                             "role": "tool",
@@ -360,7 +441,7 @@ def run_agent(
 
             calls = _tool_calls_from_decision(decision)
             if not calls:
-                final_response = decision.response or "No response."
+                final_response = decision.response or decision.reasoning or "No response."
                 break
 
             assistant_message = {"role": "assistant", "content": content or "", "tool_calls": calls}
@@ -375,6 +456,8 @@ def run_agent(
                 if tool_callback:
                     tool_callback(fn_name, fn_args)
                 result = execute_tool_call(call, metrics, tracer)
+                if tool_result_callback:
+                    tool_result_callback(fn_name, fn_args, result)
                 messages.append(
                     {
                         "role": "tool",
@@ -410,6 +493,7 @@ def run_agent(
                     })
 
         if final_response:
+            final_response = clean_agent_response(final_response)
             final_response = guardrails.sanitize_output(final_response)
             if reasoning_memory and last_reasoning:
                 reasoning_memory.save(user_input, last_reasoning, final_response)

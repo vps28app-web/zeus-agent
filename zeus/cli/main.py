@@ -28,7 +28,8 @@ class ZeusCommandCompleter(Completer):
         "/skills": "Seleciona um skill set/persona para filtrar ferramentas",
         "/mcp": "Gerencia servidores Model Context Protocol (MCP)",
         "/config": "Gerencia configurações do Zeus",
-        "/learn": "Aprendizados passados: /learn list, /learn search <query>, /learn add <problema> | <solução>",
+        "/learn": "Aprendizados passados: /learn list, /learn search <query>, /learn add <p> | <s>",
+        "/brain": "Dashboard de inteligência e aprendizado contínuo",
         "/models": "Troca o modelo/provedor LLM",
         "/plan": "Cria e executa um plano passo a passo (use /plan bmad <ideia> para análise de modelo de negócio)",
         "/team": "Executa com equipe multi-agente",
@@ -317,22 +318,164 @@ def _get_term_width() -> int:
     return max(40, min(cols, 160))
 
 
-def _print_agent_response(response: str, title: str = "ZEUS", model: str = "") -> None:
+def _apply_inline_formatting(text: str) -> str:
+    """Apply ANSI styling to inline markdown elements: **bold**, `code`, key-value tags."""
+    import re
+    # Bold **text** -> \033[1;37mtext\033[0m
+    text = re.sub(r"\*\*(.*?)\*\*", r"\033[1;37m\1\033[0m", text)
+    # Inline code `code` -> \033[1;36mcode\033[0m
+    text = re.sub(r"`([^`]+)`", r"\033[1;36m\1\033[0m", text)
+    # Key-value pattern (e.g. Status: ok) -> \033[1;33mKey:\033[0m Value
+    text = re.sub(r"^([A-Z][a-zA-Z0-9_\s-]{1,25}:)", r"\033[1;33m\1\033[0m", text)
+    return text
+
+
+def _wrap_ansi_line(text: str, max_width: int) -> List[str]:
+    """Wrap a string containing ANSI escape sequences so visible width <= max_width."""
+    if _visible_width(text) <= max_width:
+        return [text]
+
+    words = text.split(" ")
+    lines: List[str] = []
+    current_line = ""
+
+    for word in words:
+        if not current_line:
+            current_line = word
+        elif _visible_width(current_line + " " + word) <= max_width:
+            current_line += " " + word
+        else:
+            lines.append(current_line)
+            current_line = word
+
+    if current_line:
+        lines.append(current_line)
+
+    return lines if lines else [text]
+
+
+def _format_markdown_for_cli(text: str, max_width: int = 80) -> List[str]:
+    """Format markdown response for CLI rendering with color, structure, and proper line wrapping."""
+    import re
+    if not text:
+        return [""]
+
+    lines = text.splitlines()
+    formatted: List[str] = []
+    in_code_block = False
+    code_lang = ""
+
+    for line in lines:
+        stripped = line.strip()
+
+        # Code block delimiter
+        if stripped.startswith("```"):
+            if not in_code_block:
+                in_code_block = True
+                code_lang = stripped[3:].strip()
+                lang_tag = f" [{code_lang}]" if code_lang else ""
+                header = f"┌─ 💻 CODE{lang_tag} "
+                pad_len = max(2, max_width - _visible_width(header))
+                formatted.append(_color(header + "─" * pad_len, "1;30"))
+            else:
+                in_code_block = False
+                formatted.append(_color("└─" + "─" * max(2, max_width - 2), "1;30"))
+            continue
+
+        if in_code_block:
+            code_line = _color("  " + line, "1;36")
+            for wl in _wrap_ansi_line(code_line, max_width):
+                formatted.append(wl)
+            continue
+
+        if not stripped:
+            formatted.append("")
+            continue
+
+        # Markdown Headers
+        if stripped.startswith("# "):
+            title = stripped[2:].strip()
+            formatted.append(_color(f"📌 {title.upper()}", "1;33;4"))
+            continue
+        elif stripped.startswith("## "):
+            title = stripped[3:].strip()
+            formatted.append(_color(f"🔹 {title}", "1;33"))
+            continue
+        elif stripped.startswith("### "):
+            title = stripped[4:].strip()
+            formatted.append(_color(f"▸ {title}", "1;37"))
+            continue
+
+        # Bullet lists & numbered lists
+        is_bullet = False
+        prefix = ""
+        content = ""
+        if stripped.startswith(("- ", "* ", "• ")):
+            prefix = _color("  • ", "1;32")
+            content = stripped[2:]
+            is_bullet = True
+        elif re.match(r"^\d+\.\s", stripped):
+            parts = stripped.split(".", 1)
+            prefix = _color(f"  {parts[0]}.", "1;32")
+            content = parts[1].strip()
+            is_bullet = True
+
+        if is_bullet:
+            content_styled = _apply_inline_formatting(content)
+            avail_width = max(10, max_width - 5)
+            wrapped_items = _wrap_ansi_line(content_styled, avail_width)
+            if wrapped_items:
+                formatted.append(f"{prefix} {wrapped_items[0]}")
+                for wi in wrapped_items[1:]:
+                    formatted.append(f"    {wi}")
+            else:
+                formatted.append(prefix)
+            continue
+
+        # Regular text paragraph with inline formatting
+        styled_line = _apply_inline_formatting(line)
+        for wl in _wrap_ansi_line(styled_line, max_width):
+            formatted.append(wl)
+
+    return formatted
+
+
+def _print_agent_response(response: str, title: str = "ZEUS", model: str = "", status: str = "ok") -> None:
     """Print the AI response wrapped in an open-ended left-bordered card dynamic to terminal width."""
     term_width = _get_term_width()
     model_name = os.getenv("ZEUS_MODEL", model or "agent")
-    header_title = f" 🤖 {title} ({model_name}) "
-    line_length = max(10, term_width - len(header_title) - 6)
 
-    top = _color("╭──", 36) + _color(header_title, "1;36") + _color("─" * line_length, 36)
-    bottom = _color("╰" + "─" * (term_width - 3), 36)
+    border_color = "36"
+    status_label = ""
+    if status == "warning":
+        border_color = "33"
+        status_label = " " + _color("[ Atenção ]", "1;33")
+    elif status == "error":
+        border_color = "31"
+        status_label = " " + _color("[ Erro ]", "1;31")
+
+    header_title = f" 🤖 {title} ({model_name}) "
+    inner_width = max(20, term_width - 6)
+
+    top = _color("╭──", border_color) + _color(header_title, f"1;{border_color}") + status_label
+    top_vis = _visible_width(top)
+    pad_len = max(2, term_width - top_vis - 1)
+    top += _color("─" * pad_len, border_color)
+
+
+    bottom = _color("╰" + "─" * (term_width - 3), border_color)
+
+    from zeus.core.agent import clean_agent_response
+    clean_resp = clean_agent_response(str(response or ""))
+    formatted_lines = _format_markdown_for_cli(clean_resp, max_width=inner_width)
 
     print()
     print(top)
-    for line in response.splitlines():
-        print(f"{_color('│', 36)} {line}")
+    for line in formatted_lines:
+        print(f"{_color('│', border_color)} {line}")
     print(bottom)
     print()
+
 
 
 def _print_command_menu() -> None:
@@ -351,7 +494,8 @@ def _print_command_menu() -> None:
         ("/skills", "Seleciona um skill set/persona para filtrar ferramentas"),
         ("/mcp", "Gerencia servidores Model Context Protocol (MCP)"),
         ("/config", "Gerencia configurações do Zeus (get/set/list)"),
-        ("/learn", "Aprendizados passados (list/search/add)"),
+        ("/learn", "Aprendizados passados (list/search/add/stats/forget)"),
+        ("/brain", "Dashboard de inteligência e aprendizado contínuo"),
         ("/models", "Troca o modelo/provedor LLM"),
         ("/plan <tarefa>", "Cria e executa um plano passo a passo"),
         ("/plan bmad <ideia>", "Análise BMAD de modelo de negócio"),
@@ -454,6 +598,56 @@ def _handle_mcp_command(text: str) -> None:
         _print_mcp_menu()
 
 
+def _print_brain_dashboard() -> None:
+    """Print continuous learning and intelligence statistics dashboard."""
+    from zeus.memory.learning import LearningStore
+    from zeus.memory.reasoning import ReasoningMemory
+    from zeus.memory.store import MemoryStore
+    from zeus.memory.user_profile import UserProfileStore
+
+    l_store = LearningStore()
+    l_stats = l_store.get_stats()
+
+    m_store = MemoryStore()
+    m_keys = m_store.keys()
+
+    p_store = UserProfileStore()
+    profiles = p_store.list_profiles()
+
+    r_mem = ReasoningMemory()
+    r_entries = r_mem.recall("", limit=100)
+
+    term_width = _get_term_width()
+    title = " 🧠 ZEUS CONTINUOUS LEARNING & BRAIN DASHBOARD "
+    line_length = max(10, term_width - len(title) - 6)
+    top = _color("╭──", 36) + _color(title, "1;36") + _color("─" * line_length, 36)
+    bottom = _color("╰" + "─" * (term_width - 3), 36)
+
+    print()
+    print(top)
+    print(f"{_color('│', 36)}  {_color('📊 Padrões Aprendidos (Continuous Learning Store):', '1;37')}")
+    print(f"{_color('│', 36)}    • Total de Aprendizados: {_color(str(l_stats['total_learnings']), 33)}")
+    print(f"{_color('│', 36)}    • Auto-Aprendidos em Sessões: {_color(str(l_stats['auto_learned']), 32)}")
+    print(f"{_color('│', 36)}    • Alta Relevância (Score > 0): {_color(str(l_stats['high_effectiveness']), 32)}")
+    if l_stats["tags_summary"]:
+        tags_str = ", ".join(f"{k}:{v}" for k, v in list(l_stats["tags_summary"].items())[:6])
+        print(f"{_color('│', 36)}    • Tags Principais: {_color(tags_str, 90)}")
+
+    print(f"{_color('│', 36)}")
+    print(f"{_color('│', 36)}  {_color('💡 Raciocínios e Estratégias Salvas (Reasoning Memory):', '1;37')}")
+    print(f"{_color('│', 36)}    • Padrões de Raciocínio: {_color(str(len(r_entries)), 33)}")
+
+    print(f"{_color('│', 36)}")
+    print(f"{_color('│', 36)}  {_color('👤 Conhecimento sobre Usuário & Perfil:', '1;37')}")
+    print(f"{_color('│', 36)}    • Perfis Ativos: {_color(str(len(profiles)), 33)}")
+    print(f"{_color('│', 36)}    • Chaves de Conhecimento Persistente: {_color(str(len(m_keys)), 33)}")
+
+    print(f"{_color('│', 36)}")
+    print(f"{_color('│', 36)}  {_color('⚡ O Zeus aprende autonomamente após resoluções e avalia feedback do usuário!', 90)}")
+    print(bottom)
+    print()
+
+
 def _print_learning_menu() -> None:
     """Print a visual menu for the /learn command."""
     term_width = _get_term_width()
@@ -467,9 +661,11 @@ def _print_learning_menu() -> None:
     print(f"{_color('│', 33)}  {_color('Comandos:', 90)}")
     print(f"{_color('│', 33)}    • {_color('/learn', 33)}                       - Menu de aprendizados")
     print(f"{_color('│', 33)}    • {_color('/learn list', 33)}                  - Lista recentes")
-    print(f"{_color('│', 33)}    • {_color('/learn search <query>', 33)}        - Busca aprendizados")
+    print(f"{_color('│', 33)}    • {_color('/learn search <query>', 33)}        - Busca aprendizados por palavra-chave")
     print(f"{_color('│', 33)}    • {_color('/learn add <p> | <s> [tags]', 33)} - Adiciona aprendizado manual")
     print(f"{_color('│', 33)}    • {_color('/learn rate <id> <+1/-1>', 33)}    - Avalia aprendizado")
+    print(f"{_color('│', 33)}    • {_color('/learn stats', 33)}                 - Dashboard de inteligência / brain")
+    print(f"{_color('│', 33)}    • {_color('/learn forget <id>', 33)}            - Remove aprendizado específico")
     print(bottom)
     print()
 
@@ -487,9 +683,15 @@ def _handle_learning_command(text: str) -> None:
         _print_learning_menu()
         return
 
+    if subcmd in ("stats", "brain", "dashboard"):
+        _print_brain_dashboard()
+        return
+
     if subcmd == "list":
         learnings = store.list_recent(limit=10)
         print(f"\n{_color('📚 Aprendizados recentes:', 33)}")
+        if not learnings:
+            print(f"  {_color('Nenhum aprendizado registrado ainda.', 90)}")
         for item in learnings:
             score = item.get("effectiveness_score", 0)
             score_color = 32 if score > 0 else 31 if score < 0 else 90
@@ -505,6 +707,8 @@ def _handle_learning_command(text: str) -> None:
         query = subcmd[len("search "):].strip()
         results = store.search(query, limit=5)
         print(f"\n{_color('🔍 Resultados:', 33)} {query}\n")
+        if not results:
+            print(f"  {_color('Nenhum aprendizado encontrado para essa busca.', 90)}")
         for item in results:
             item_id = item.get("id")
             item_problem = item.get("problem", "")
@@ -544,6 +748,16 @@ def _handle_learning_command(text: str) -> None:
         helpful = tokens[1] == "+1"
         store.rate(learning_id, helpful)
         print(f"\n{_color('✅ Feedback registrado:', 32)} ID {learning_id} {'+1' if helpful else '-1'}\n")
+        return
+
+    if subcmd.startswith("forget ") or subcmd.startswith("delete "):
+        rest = subcmd.split(maxsplit=1)[1].strip()
+        if not rest.isdigit():
+            print(f"\n{_color('❌ Uso:', '1;31')} /learn forget <id>\n")
+            return
+        learning_id = int(rest)
+        store.delete(learning_id)
+        print(f"\n{_color('✅ Aprendizado removido:', 32)} ID {learning_id}\n")
         return
 
     _print_learning_menu()
@@ -644,16 +858,23 @@ def _print_step_result(step: Dict[str, Any], total: int) -> None:
     """Print the result of a single plan step."""
     term_width = _get_term_width()
     title = f" ✅ Passo {step['step']}/{total}: {step['action'][:40]} "
-    line_length = max(10, term_width - len(title) - 6)
-    top = _color("╭──", 32) + _color(title, "1;32") + _color("─" * line_length, 32)
+    inner_width = max(20, term_width - 6)
+
+    header_top = _color("╭──", 32) + _color(title, "1;32")
+    top_vis = _visible_width(header_top)
+    pad_len = max(2, term_width - top_vis - 1)
+    top = header_top + _color("─" * pad_len, 32)
     bottom = _color("╰" + "─" * (term_width - 3), 32)
+
+    formatted_lines = _format_markdown_for_cli(str(step.get("result", "")), max_width=inner_width)
 
     print()
     print(top)
-    for line in str(step.get("result", "")).splitlines():
+    for line in formatted_lines:
         print(f"{_color('│', 32)} {line}")
     print(bottom)
     print()
+
 
 
 def _ask_confirmation(session: PromptSession, text: str) -> bool:
@@ -678,6 +899,87 @@ def _print_tool_execution(name: Optional[str], args: Any) -> None:
         args_str = args_str[:62] + "..."
     tool_name = name or "ferramenta"
     print(f"  {_color('⚡ Executando:', 35)} {_color(tool_name, '1;35')}({_color(args_str, 90)})")
+
+
+def _print_tool_result(name: Optional[str], args: Any, result: Dict[str, Any]) -> None:
+    """Print detailed visual output for file creation (code) and file edits (line diffs)."""
+    if not isinstance(result, dict):
+        return
+
+    res_data = result.get("result") if isinstance(result.get("result"), dict) else result
+    if not isinstance(res_data, dict) or res_data.get("status") != "success":
+        return
+
+    term_width = _get_term_width()
+    inner_width = max(20, term_width - 8)
+
+    # 1. File Created Case
+    if res_data.get("action") == "created" or (name in ("write_file", "create_file") and "content" in res_data and "old_content" not in res_data and "diff" not in res_data):
+        file_path = res_data.get("path") or (args.get("path") if isinstance(args, dict) else "arquivo")
+        content = res_data.get("content") or (args.get("content") if isinstance(args, dict) else "")
+
+        title = f" 📄 ARQUIVO CRIADO: {file_path} "
+        line_length = max(10, term_width - len(title) - 6)
+        top = _color("╭──", 32) + _color(title, "1;32") + _color("─" * line_length, 32)
+        bottom = _color("╰" + "─" * (term_width - 3), 32)
+
+        print()
+        print(top)
+        lines = content.splitlines()
+        max_preview = 60
+        for idx, line_text in enumerate(lines[:max_preview], 1):
+            num_str = f"{idx:3d} │ "
+            truncated_line = line_text[:inner_width - len(num_str)]
+            print(f"{_color('│', 32)} {_color(num_str, 90)}{_color(truncated_line, 37)}")
+        if len(lines) > max_preview:
+            remaining_lines = len(lines) - max_preview
+            print(f"{_color('│', 32)} {_color(f'  ... ({remaining_lines} linhas ocultas)', 90)}")
+        print(bottom)
+        print()
+        return
+
+    # 2. File Modified Case (Diff Display)
+    if res_data.get("action") == "modified" or "diff" in res_data or (name in ("write_file", "replace_file_content", "modify_file") and "old_content" in res_data):
+        file_path = res_data.get("path") or (args.get("path") if isinstance(args, dict) else "arquivo")
+        diff_text = res_data.get("diff", "")
+
+        if not diff_text and "old_content" in res_data and "content" in res_data:
+            import difflib
+            old_lines = res_data["old_content"].splitlines(keepends=True)
+            new_lines = res_data["content"].splitlines(keepends=True)
+            diff_text = "".join(difflib.unified_diff(old_lines, new_lines, fromfile="antigo", tofile="novo"))
+
+        if not diff_text:
+            return
+
+        title = f" 📝 ARQUIVO ALTERADO: {file_path} "
+        line_length = max(10, term_width - len(title) - 6)
+        top = _color("╭──", 33) + _color(title, "1;33") + _color("─" * line_length, 33)
+        bottom = _color("╰" + "─" * (term_width - 3), 33)
+
+        print()
+        print(top)
+        diff_lines = diff_text.splitlines()
+        for diff_line in diff_lines:
+            if diff_line.startswith("---") or diff_line.startswith("+++"):
+                continue
+            if diff_line.startswith("@@"):
+                print(f"{_color('│', 33)} {_color(diff_line[:inner_width], '1;33')}")
+            elif diff_line.startswith("-"):
+                # Linha Antiga (Vermelho)
+                line_content = diff_line[1:]
+                print(f"{_color('│', 33)} {_color('🔴 - ', '1;31')}{_color(line_content[:inner_width - 5], 31)}")
+            elif diff_line.startswith("+"):
+                # Nova Linha Alterada (Verde)
+                line_content = diff_line[1:]
+                print(f"{_color('│', 33)} {_color('🟢 + ', '1;32')}{_color(line_content[:inner_width - 5], 32)}")
+            else:
+                # Linha Inalterada (Contexto)
+                line_content = diff_line[1:] if diff_line.startswith(" ") else diff_line
+                print(f"{_color('│', 33)}    {_color(line_content[:inner_width - 4], 90)}")
+        print(bottom)
+        print()
+        return
 
 
 def _print_prompt_header(logger, metrics, active_skill: Optional[set] = None) -> None:
@@ -821,16 +1123,18 @@ def main() -> None:
             print(f"\n{_color('⚡ Digite /exit ou pressione Ctrl+D para sair.', 90)}")
             continue
         except EOFError:
-            print("\nSaindo...")
+            print(f"\n{_color('👋 Até mais!', 36)}\n")
             break
 
 
         text = user_input.strip()
         if not text:
             continue
-        if text in ("/exit", "exit"):
-            print("Saindo...")
+        if text == "/exit":
+            print(f"\n{_color('👋 Até mais!', 36)}\n")
             break
+
+
         if text == "/new":
             logger = get_logger(new_session=True)
             metrics = get_metrics(logger.session_id)
@@ -861,6 +1165,10 @@ def main() -> None:
 
         if text == "/config" or text.startswith("/config "):
             _handle_config_command(text)
+            continue
+
+        if text == "/brain":
+            _print_brain_dashboard()
             continue
 
         if text == "/learn" or text.startswith("/learn "):
@@ -956,14 +1264,58 @@ def main() -> None:
         logger.log_turn("user", text)
         _print_user_closing()
         try:
-            response = run_agent(text, session_id=logger.session_id, tool_callback=_print_tool_execution, tool_filter=active_skill)
-            if isinstance(response, dict) and response.get("permission_required"):
+            response = run_agent(
+                text,
+                session_id=logger.session_id,
+                tool_callback=_print_tool_execution,
+                tool_result_callback=_print_tool_result,
+                tool_filter=active_skill,
+            )
+
+            # Handle interactive permission confirmation if required
+            while isinstance(response, dict) and response.get("permission_required"):
                 perm = response["permission_required"]
-                resp_text = f"Permissão necessária: {perm.get('action')} em '{perm.get('path')}'."
+                action = perm.get("action", "escrita")
+                path_str = perm.get("path", "")
+                msg = (
+                    f"File permission request / Solicitação de permissão de arquivo:\n"
+                    f"  • Operation / Operação: {action}\n"
+                    f"  • File / Arquivo: {path_str}"
+                )
+                choice = _ask_file_permission_prompt(msg)
+                if choice in ("once", "always", "persist"):
+                    from zeus.tools.file import get_file_permission_manager
+                    pm = get_file_permission_manager()
+                    pm.grant_permission(action, Path(path_str), scope=choice)
+                    print(f"\n{_color('✅ Permissão concedida!', 32)} Retomando operação...\n")
+                    pending = response.get("pending_input", text)
+                    response = run_agent(
+                        pending,
+                        session_id=logger.session_id,
+                        tool_callback=_print_tool_execution,
+                        tool_result_callback=_print_tool_result,
+                        tool_filter=active_skill,
+                    )
+                else:
+                    resp_text = (
+                        f"Permissão negada pelo usuário para '{action}' no arquivo '{path_str}'. "
+                        "A operação de escrita foi cancelada por segurança."
+                    )
+                    response = resp_text
+                    break
+
+            status = "ok"
+            if isinstance(response, str) and response.startswith("Guardrail Blocked:"):
+                resp_text = response
+                status = "warning"
+            elif isinstance(response, str) and response.startswith("LLM error:"):
+                resp_text = response
+                status = "error"
             else:
                 resp_text = str(response)
             logger.log_turn("assistant", resp_text)
-            _print_agent_response(resp_text)
+            _print_agent_response(resp_text, status=status)
+
         except KeyboardInterrupt:
             logger.log_turn("system", "Interrupted by user (Ctrl+C)")
             print(f"\n{_color('⚡ Execução interrompida pelo usuário (Ctrl+C).', 33)}\n")
@@ -971,8 +1323,6 @@ def main() -> None:
             logger.log_turn("error", str(e))
             print(f"\n{_color('❌ Erro:', '1;31')} {e}\n", file=sys.stderr)
 
-    print(f"Session log: {logger.log_path}")
-    print(run_summary(session_id=logger.session_id))
 
 
 if __name__ == "__main__":

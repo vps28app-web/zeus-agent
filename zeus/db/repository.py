@@ -583,27 +583,65 @@ class LearningRepository:
             conditions = []
             params: List[Any] = []
 
-            if query:
-                pattern = f"%{query}%"
-                conditions.append("(problem LIKE ? OR solution LIKE ? OR failure_pattern LIKE ?)")
-                params.extend([pattern, pattern, pattern])
-
             if tags:
                 placeholders = ",".join("?" * len(tags))
                 conditions.append(
-                    f"id IN (SELECT id FROM learnings, json_each(tags) WHERE json_each.value IN ({placeholders}))")
+                    f"id IN (SELECT id FROM learnings, json_each(tags) WHERE json_each.value IN ({placeholders}))"
+                )
                 params.extend(tags)
 
             if user_id:
                 conditions.append("(user_id = ? OR user_id IS NULL)")
                 params.append(user_id)
 
+            words: List[str] = []
+            if query and query.strip():
+                clean_q = query.strip()
+                raw_words = [w.lower().strip("?,!.:;\"'()") for w in clean_q.split()]
+                stop_words = {
+                    "como", "para", "com", "que", "uma", "este", "essa", "mais", "sobre", "qual", "quais",
+                    "de", "do", "da", "dos", "das", "em", "no", "na", "nos", "nas", "ao", "aos", "ou",
+                    "the", "and", "for", "with", "that", "this", "from", "are", "you", "can"
+                }
+                words = [w for w in raw_words if len(w) >= 2 and w not in stop_words]
+                if not words and raw_words:
+                    words = [w for w in raw_words if len(w) >= 2]
+
+                # First try exact phrase match
+                pattern = f"%{clean_q}%"
+                exact_cond = "(problem LIKE ? OR solution LIKE ? OR failure_pattern LIKE ?)"
+                exact_params = [pattern, pattern, pattern]
+
+                if words:
+                    word_clauses = []
+                    word_params: List[Any] = []
+                    for w in words:
+                        wp = f"%{w}%"
+                        word_clauses.append("(problem LIKE ? OR solution LIKE ? OR failure_pattern LIKE ? OR tags LIKE ?)")
+                        word_params.extend([wp, wp, wp, wp])
+                    token_cond = f"({exact_cond} OR ({' OR '.join(word_clauses)}))"
+                    conditions.append(token_cond)
+                    params.extend(exact_params + word_params)
+                else:
+                    conditions.append(exact_cond)
+                    params.extend(exact_params)
+
             where = "WHERE " + " AND ".join(conditions) if conditions else ""
-            sql = f"SELECT * FROM learnings {where} ORDER BY effectiveness_score DESC, created_at DESC LIMIT ?"
-            params.append(limit)
+            sql = f"SELECT * FROM learnings {where} ORDER BY effectiveness_score DESC, created_at DESC LIMIT 50"
 
             rows = conn.execute(sql, params).fetchall()
-            return [self._parse(row) for row in rows]
+            results = [self._parse(row) for row in rows]
+
+            if words and results:
+                def calc_score(item: Dict[str, Any]) -> float:
+                    text = f"{item['problem']} {item['solution']} {item.get('failure_pattern') or ''} {' '.join(item.get('tags', []))}".lower()
+                    exact_match = 30.0 if query and query.lower() in text else 0.0
+                    token_matches = sum(1 for w in words if w in text)
+                    return exact_match + token_matches * 10.0 + float(item.get("effectiveness_score", 0))
+
+                results.sort(key=calc_score, reverse=True)
+
+            return results[:limit]
         finally:
             conn.close()
 

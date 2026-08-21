@@ -136,3 +136,8 @@ sudo ./sandbox/sandbox -addr 127.0.0.1:9876
 - `docs/MCP.md` — Model Context Protocol
 - `docs/CONFIG.md` — gerenciamento de configurações
 - `docs/LEARNING.md` — aprendizado contínuo
+
+## Autor
+
+- **vps28**
+

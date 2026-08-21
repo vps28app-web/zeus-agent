@@ -141,3 +141,80 @@ def test_agent_max_turns_summary_fallback():
         assert "Summary: I attempted to read the file" in result
 
 
+def test_agent_tool_result_callback(tmp_path):
+    from zeus.security.permissions import PermissionManager
+    from zeus.tools.file import set_file_permission_manager
+
+    target_file = (tmp_path / "hello.py").resolve()
+    pm = PermissionManager(file_level="unrestricted")
+    set_file_permission_manager(pm)
+
+    callbacks_received = []
+
+    def result_cb(name, args, result):
+        callbacks_received.append((name, result))
+
+    mock_resp_1 = {
+        "choices": [
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "call_1",
+                            "function": {
+                                "name": "write_file",
+                                "arguments": json.dumps({"path": str(target_file), "content": "print('hello')\n"}),
+                            },
+                        }
+                    ],
+                }
+            }
+        ]
+    }
+    mock_resp_2 = {
+        "choices": [
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": "File created successfully.",
+                }
+            }
+        ]
+    }
+
+    with patch("zeus.core.agent.chat", side_effect=[mock_resp_1, mock_resp_2]):
+        run_agent("create hello.py", tool_result_callback=result_cb)
+
+    assert len(callbacks_received) == 1
+    tool_name, res = callbacks_received[0]
+    assert tool_name == "write_file"
+    assert res["result"]["action"] == "created"
+    assert "print('hello')" in res["result"]["content"]
+
+
+def test_clean_agent_response_removes_json_and_xml():
+    from zeus.core.agent import clean_agent_response
+
+    raw_user_example = """{
+"reasoning": "O usuário está perguntando por que o arquivo não foi criado. Vou verificar o estado atual do diretório e ver o que aconteceu com o comando anterior.",
+  "response": null,
+  "tool_calls": [
+    {
+      "name": "list_directory",
+      "arguments": {
+        "path": "."
+      }
+    }
+  ]
+</parameter>
+</function>
+</tool_call>"""
+
+    cleaned = clean_agent_response(raw_user_example)
+    assert cleaned == "O usuário está perguntando por que o arquivo não foi criado. Vou verificar o estado atual do diretório e ver o que aconteceu com o comando anterior."
+    assert "tool_calls" not in cleaned
+    assert "</parameter>" not in cleaned
+
+

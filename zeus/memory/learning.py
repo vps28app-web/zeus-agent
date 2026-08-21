@@ -64,6 +64,62 @@ class LearningStore:
         self._repo.update_score(learning_id, delta)
         return True
 
+    def delete(self, learning_id: int) -> bool:
+        """Delete a specific learning entry."""
+        self._repo.delete(learning_id)
+        return True
+
+    def get_stats(self) -> Dict[str, Any]:
+        """Get summary metrics of current learnings stored."""
+        recent = self._repo.list_recent(limit=500)
+        total = len(recent)
+        positive_count = sum(1 for e in recent if e.get("effectiveness_score", 0) > 0)
+        auto_learned = sum(1 for e in recent if "auto-learned" in e.get("tags", []))
+        all_tags: Dict[str, int] = {}
+        for e in recent:
+            for tag in e.get("tags", []):
+                all_tags[tag] = all_tags.get(tag, 0) + 1
+        return {
+            "total_learnings": total,
+            "high_effectiveness": positive_count,
+            "auto_learned": auto_learned,
+            "tags_summary": all_tags,
+        }
+
+    def process_user_feedback(self, text: str, session_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Detect praise or dissatisfaction in user text and update recent learnings score."""
+        lowered = text.lower().strip()
+        negative_signals = [
+            "não funcionou", "nao funcionou", "errado", "ficou ruim", "incorreto",
+            "pessimo", "péssimo", "não deu certo", "nao deu certo", "está errado", "ruim"
+        ]
+        positive_signals = [
+            "ótimo", "otimo", "perfeito", "excelente", "muito bom", "deu certo",
+            "funciona", "funcionou", "parabéns", "parabens", "brilhante", "gostei", "correto"
+        ]
+
+        is_neg = any(sig in lowered for sig in negative_signals)
+        is_pos = not is_neg and any(sig in lowered for sig in positive_signals)
+
+        if not is_pos and not is_neg:
+            return None
+
+        recent = self._repo.list_recent(limit=5)
+        if not recent:
+            return None
+
+        delta = 1 if is_pos else -1
+        updated_ids = []
+        for entry in recent[:3]:
+            self._repo.update_score(entry["id"], delta)
+            updated_ids.append(entry["id"])
+
+        return {
+            "feedback_type": "positive" if is_pos else "negative",
+            "delta": delta,
+            "updated_learnings": updated_ids,
+        }
+
     def format_context(self, task: str, tags: Optional[List[str]] = None) -> str:
         """Return relevant learnings as a context string for the system prompt."""
         entries = self.search(task, tags=tags, limit=3)
@@ -84,11 +140,7 @@ class LearningStore:
         session_id: str,
         turns: List[Dict[str, Any]],
     ) -> Optional[Dict[str, Any]]:
-        """Heuristic extraction of a learning from a session's turn history.
-
-        Looks for sequences where one or more tool calls errored and a later
-        response succeeded, then stores the resolution pattern.
-        """
+        """Extraction of learning patterns from a session turn history."""
         if len(turns) < 3:
             return None
 
@@ -113,19 +165,17 @@ class LearningStore:
                 if data.get("error"):
                     tool_errors.append(f"{tool_name}: {data['error']}")
             elif role == "assistant":
-                if isinstance(content, str):
-                    final_response = content
+                if isinstance(content, str) and content.strip():
+                    final_response = content.strip()
 
         if not user_input or not final_response:
             return None
 
-        # Only store if there was at least one error and a later success.
-        if not tool_errors:
-            return None
-
+        # Capture pattern if tool errors occurred OR if multi-tool interaction succeeded
         problem = f"Task: {user_input[:200]}"
         solution = f"Resolved by: {final_response[:400]}"
-        failure_pattern = "; ".join(tool_errors[:3])
+        failure_pattern = "; ".join(tool_errors[:3]) if tool_errors else None
+        score = 2 if tool_errors else 1
         tags = list({"resolution", "auto-learned"} | set(tools_used))
 
         learning_id = self.save(
@@ -134,7 +184,7 @@ class LearningStore:
             session_id=session_id,
             tools_used=list(set(tools_used)),
             tags=tags,
-            effectiveness_score=1,
+            effectiveness_score=score,
             failure_pattern=failure_pattern,
         )
         return self._repo.get(learning_id)
