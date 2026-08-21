@@ -1,8 +1,8 @@
 """Web search and LLM-friendly content extraction tools."""
 
 import os
-from typing import Any, Dict, List, Optional
 import urllib.parse
+from typing import Any, Dict, List
 
 from zeus.core.registry import register_tool
 

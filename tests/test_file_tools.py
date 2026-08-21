@@ -1,17 +1,16 @@
 """Unit tests for enhanced file tools in zeus/tools/file.py."""
 
+
 import pytest
-from pathlib import Path
+
+from zeus.security.permissions import PermissionManager
 from zeus.tools.file import (
-    replace_file_content,
-    move_file,
     copy_file,
     grep_search,
-    write_file,
-    read_file,
+    move_file,
+    replace_file_content,
     set_file_permission_manager,
 )
-from zeus.security.permissions import PermissionManager
 
 
 @pytest.fixture(autouse=True)

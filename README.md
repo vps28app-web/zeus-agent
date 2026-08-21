@@ -101,7 +101,7 @@ python -m zeus.cli -q "liste arquivos do diretório atual"
 
 ## Ferramentas
 
-29 ferramentas em 7 categorias: sistema, arquivos, web, memória, git, código, browser, banco de dados, scheduler. Veja `docs/TOOLS.md`.
+50 ferramentas em 8 categorias: sistema, arquivos, web, memória, aprendizado, git, scheduler e configuração. Veja `docs/TOOLS.md`.
 
 ## Gateways
 
@@ -131,7 +131,8 @@ sudo ./sandbox/sandbox -addr 127.0.0.1:9876
 
 - `docs/ARCHITECTURE.md` — arquitetura detalhada
 - `docs/USAGE.md` — uso completo
-- `docs/TOOLS.md` — todas as 29 ferramentas
+- `docs/TOOLS.md` — todas as 50 ferramentas
+- `docs/GATEWAY.md` — gateways Telegram, WhatsApp e Discord
 - `docs/SANDBOX.md` — detalhes da sandbox
 - `docs/MCP.md` — Model Context Protocol
 - `docs/CONFIG.md` — gerenciamento de configurações

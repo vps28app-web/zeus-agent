@@ -1,194 +1,93 @@
 # Ferramentas do Zeus
 
-29 ferramentas registradas, auto-importadas em `zeus/__init__.py`.
+50 ferramentas registradas, auto-importadas em `zeus/__init__.py` e `zeus/cli/main.py`.
 
-## Sistema (3)
+## Sistema (7)
 
-### run_terminal
-Executa comando shell no host (sem isolamento).
-```json
-{"command": "ls -la", "timeout": 60}
-```
+| Ferramenta | Descrição |
+|---|---|
+| `run_terminal` | Executa comando shell no host (suporta `cwd`). |
+| `run_sandboxed` | Executa comando shell dentro da sandbox Go isolada. |
+| `run_background_command` | Executa comando shell assíncrono em background. |
+| `command_status` | Consulta status/saída de um comando em background. |
+| `terminate_command` | Encerra um comando em background pelo `command_id`. |
+| `execute_python` | Executa código Python isolado na sandbox. |
+| `execute_shell_script` | Executa script shell isolado na sandbox. |
 
-### run_sandboxed
-Executa comando shell dentro da sandbox Go isolada.
-```json
-{"command": "python3 -c 'print(2+2)'", "timeout": 30}
-```
+## Arquivos (10)
 
-### query_database
-Consulta SQL read-only no banco SQLite do Zeus.
-```json
-{"query": "SELECT * FROM memories WHERE key = 'general'", "limit": 100}
-```
+| Ferramenta | Descrição |
+|---|---|
+| `read_file` | Lê linhas de arquivo de texto. |
+| `write_file` | Cria ou sobrescreve arquivo. |
+| `list_directory` | Lista arquivos e diretórios. |
+| `search_files` | Busca conteúdo com regex. |
+| `grep_search` | Busca regex de alta velocidade em arquivos do projeto. |
+| `copy_file` | Copia arquivo ou diretório. |
+| `move_file` | Move ou renomeia arquivo/diretório. |
+| `delete_file` | Deleta arquivo. |
+| `replace_file_content` | Substitui trecho em arquivo existente (gera diff). |
+| `query_database` | Consulta SQL read-only no banco SQLite do Zeus. |
 
-## Arquivos (4)
+## Web (7)
 
-### read_file
-Lê linhas de arquivo de texto.
-```json
-{"path": "/tmp/arquivo.txt", "offset": 1, "limit": 2000}
-```
+| Ferramenta | Descrição |
+|---|---|
+| `web_search` | Busca na web (DuckDuckGo, Tavily, Serper). |
+| `web_extract` | Extrai conteúdo legível de URL em Markdown. |
+| `web_scrape_links` | Extrai todos os links de uma página. |
+| `browser_navigate` | Navega com Chrome headless, retorna título + texto. |
+| `browser_extract` | Extrai HTML/elementos via CSS selector. |
+| `browser_click` | Clica elemento e retorna texto atualizado. |
+| `browser_evaluate` | Avalia JavaScript na página. |
 
-### write_file
-Cria ou sobrescreve arquivo (cria diretórios pais automaticamente).
-```json
-{"path": "/tmp/novo.txt", "content": "conteúdo..."}
-```
+## Memória (10)
 
-### list_directory
-Lista arquivos e diretórios.
-```json
-{"path": "/tmp"}
-```
+| Ferramenta | Descrição |
+|---|---|
+| `remember` | Armazena nota persistente. |
+| `recall` | Recupera notas por chave. |
+| `search_memory` | Busca notas na memória por palavra-chave. |
+| `list_memories` | Lista chaves e contagem de notas. |
+| `forget_memory` | Apaga todas as notas de uma chave. |
+| `remember_user` | Armazena fato sobre o usuário. |
+| `recall_user` | Recupera perfil do usuário. |
+| `reflect_on_resolution` | Salva padrão problema/solução aprendido. |
+| `search_past_learnings` | Busca aprendizados passados relevantes. |
+| `list_recent_learnings` | Lista aprendizados mais recentes. |
 
-### search_files
-Busca conteúdo com regex.
-```json
-{"pattern": "def funcao", "path": "."}
-```
+## Aprendizado (1)
 
-## Web (2)
-
-### web_search
-Busca na web via Serper.
-```json
-{"query": "termo para buscar", "limit": 5}
-```
-Requer: `SERPER_API_KEY`
-
-### web_extract
-Extrai conteúdo de URL.
-```json
-{"url": "https://example.com", "char_limit": 15000}
-```
-
-## Memória (2)
-
-### remember
-Armazena nota persistente.
-```json
-{"note": "valor importante", "key": "general"}
-```
-
-### recall
-Recupera notas por chave.
-```json
-{"key": "general"}
-```
+| Ferramenta | Descrição |
+|---|---|
+| `rate_learning` | Avalia se um aprendizado foi útil. |
 
 ## Git (8)
 
-### git_status
-Mostra estado do working tree.
-```json
-{"repo_path": "."}
-```
+| Ferramenta | Descrição |
+|---|---|
+| `git_status` | Status do working tree. |
+| `git_log` | Histórico de commits. |
+| `git_diff` | Alterações. |
+| `git_branch` | Lista branches. |
+| `git_checkout` | Muda de branch. |
+| `git_pull` | Pull do remote. |
+| `git_push` | Push para remote. |
+| `git_commit` | Commit com mensagem. |
+| `git_clone` | Clona repositório remoto. |
 
-### git_log
-Mostra histórico de commits.
-```json
-{"repo_path": ".", "max_count": 10, "oneline": true}
-```
+## Scheduler (2)
 
-### git_diff
-Mostra alterações.
-```json
-{"repo_path": ".", "staged": false, "target": "HEAD~1"}
-```
+| Ferramenta | Descrição |
+|---|---|
+| `schedule_task` | Agenda tarefa com cron expression. |
+| `list_scheduled` | Lista tarefas agendadas. |
+| `cancel_task` | Cancela tarefa pelo ID. |
 
-### git_branch
-Lista branches.
-```json
-{"repo_path": ".", "all_branches": false}
-```
+## Configuração (3)
 
-### git_checkout
-Muda de branch.
-```json
-{"repo_path": ".", "branch": "main"}
-```
-
-### git_pull
-Pull do remote.
-```json
-{"repo_path": ".", "remote": "origin", "branch": "main"}
-```
-
-### git_push
-Push para remote.
-```json
-{"repo_path": ".", "remote": "origin", "branch": "main"}
-```
-
-### git_commit
-Commit com mensagem.
-```json
-{"repo_path": ".", "message": "fix: corrigir bug", "add_all": false}
-```
-
-### git_clone
-Clona repositório.
-```json
-{"repo_url": "https://github.com/user/repo.git", "target_path": "/tmp/repo", "depth": 1}
-```
-
-## Execução de código (2)
-
-### execute_python
-Executa Python na sandbox isolada.
-```json
-{"code": "print([x**2 for x in range(5)])", "timeout": 30}
-```
-
-### execute_shell_script
-Executa script shell na sandbox.
-```json
-{"script": "echo hello && ls /tmp", "timeout": 30}
-```
-
-## Browser/CDP (4)
-
-### browser_navigate
-Navega para URL com Chrome headless, retorna título e texto visível.
-```json
-{"url": "https://example.com", "wait_seconds": 2.0}
-```
-
-### browser_extract
-Extrai HTML ou elementos via CSS selector.
-```json
-{"url": "https://example.com", "selector": "h1", "wait_seconds": 2.0}
-```
-
-### browser_click
-Clica elemento via CSS selector.
-```json
-{"url": "https://example.com", "selector": "#botao", "wait_seconds": 2.0}
-```
-
-### browser_evaluate
-Avalia JavaScript na página.
-```json
-{"url": "https://example.com", "expression": "document.title", "wait_seconds": 2.0}
-```
-
-## Scheduler (3)
-
-### schedule_task
-Agenda tarefa com cron expression.
-```json
-{"command": "ls -la /tmp", "schedule": "0 9 * * *", "description": "listar /tmp"}
-```
-
-### list_scheduled
-Lista todas as tarefas agendadas.
-```json
-{}
-```
-
-### cancel_task
-Cancela tarefa pelo ID.
-```json
-{"task_id": "abc123"}
-```
+| Ferramenta | Descrição |
+|---|---|
+| `get_zeus_config` | Retorna configuração atual do Zeus. |
+| `update_zeus_config` | Atualiza variável/chave de API no `.env`. |
+| `list_available_models` | Lista provedores e modelos disponíveis. |

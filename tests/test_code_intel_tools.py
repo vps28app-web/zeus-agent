@@ -1,12 +1,13 @@
 """Unit tests for Code Intelligence tools in zeus/tools/code_intel.py."""
 
+
 import pytest
-from pathlib import Path
+
 from zeus.tools.code_intel import (
-    parse_code_structure,
+    _permissions,
     codebase_symbol_map,
     find_symbol,
-    _permissions,
+    parse_code_structure,
 )
 
 

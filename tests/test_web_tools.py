@@ -1,9 +1,8 @@
 """Unit tests for web search and extraction tools in zeus/tools/web.py."""
 
 from unittest.mock import MagicMock, patch
-import pytest
 
-from zeus.tools.web import web_search, web_extract, web_scrape_links
+from zeus.tools.web import web_extract, web_scrape_links, web_search
 
 
 def test_web_search_duckduckgo_fallback():

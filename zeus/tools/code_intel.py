@@ -1,10 +1,9 @@
 """Code Intelligence & AST Symbol Mapping Tools."""
 
 import ast
-import os
-from pathlib import Path
 import re
-from typing import Any, Dict, List, Optional
+from pathlib import Path
+from typing import Any, Dict, List
 
 from zeus.core.registry import register_tool
 from zeus.security.permissions import PermissionManager

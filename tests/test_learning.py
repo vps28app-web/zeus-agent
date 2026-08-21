@@ -124,7 +124,7 @@ def test_process_user_feedback(store):
 
 def test_get_stats_and_delete(store):
     id1 = store.save(problem="p1", solution="s1", tags=["auto-learned", "test"], effectiveness_score=2)
-    id2 = store.save(problem="p2", solution="s2", tags=["manual"], effectiveness_score=0)
+    store.save(problem="p2", solution="s2", tags=["manual"], effectiveness_score=0)
 
     stats = store.get_stats()
     assert stats["total_learnings"] >= 2

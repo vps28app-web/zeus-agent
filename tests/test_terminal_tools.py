@@ -1,13 +1,15 @@
 """Unit tests for background terminal tools in zeus/tools/terminal.py."""
 
 import time
+
 import pytest
+
 from zeus.tools.terminal import (
-    run_terminal,
-    run_background_command,
-    command_status,
-    terminate_command,
     _permissions,
+    command_status,
+    run_background_command,
+    run_terminal,
+    terminate_command,
 )
 
 
