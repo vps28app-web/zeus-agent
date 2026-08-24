@@ -31,14 +31,15 @@ class ZeusCommandCompleter(Completer):
         "/learn": "Aprendizados passados: /learn list, /learn search <query>, /learn add <p> | <s>",
         "/brain": "Dashboard de inteligência e aprendizado contínuo",
         "/models": "Troca o modelo/provedor LLM",
+        "/mode": "Alterna entre sandbox e terminal (execução no host)",
         "/plan": "Cria e executa um plano passo a passo (use /plan bmad <ideia> para análise de modelo de negócio)",
         "/team": "Executa com equipe multi-agente",
         "/exit": "Encerra o Zeus",
         "/help": "Mostra a ajuda de comandos",
     }
 
-
     SKILL_SETS = ["coding", "security", "research", "memory", "all"]
+    MODES = ["sandbox", "terminal"]
 
     def get_completions(self, document, complete_event):
         text = document.text_before_cursor
@@ -49,6 +50,17 @@ class ZeusCommandCompleter(Completer):
             if query == "/skills" and len(parts) <= 2:
                 prefix = parts[1] if len(parts) == 2 else ""
                 for name in self.SKILL_SETS:
+                    if name.startswith(prefix):
+                        yield Completion(
+                            name,
+                            start_position=-len(prefix),
+                            display=name,
+                        )
+                return
+            # complete mode names after /mode
+            if query == "/mode" and len(parts) <= 2:
+                prefix = parts[1] if len(parts) == 2 else ""
+                for name in self.MODES:
                     if name.startswith(prefix):
                         yield Completion(
                             name,
@@ -286,7 +298,7 @@ def _print_banner(logger, metrics) -> None:
         f"  {_color('Session:', 90)}  {logger.session_id[:12]}",
         f"  {_color('Uptime:', 90)}   {duration}",
         "",
-        f"  {_color('Comandos:', 90)} /new  /reset  /clear  /skills  /models  /summary  /help  /exit",
+        f"  {_color('Comandos:', 90)} /new  /reset  /clear  /skills  /models  /mode  /summary  /help  /exit",
     ]
 
     inner_width = max(60, min(_get_term_width() - 4, 120))
@@ -497,6 +509,7 @@ def _print_command_menu() -> None:
         ("/learn", "Aprendizados passados (list/search/add/stats/forget)"),
         ("/brain", "Dashboard de inteligência e aprendizado contínuo"),
         ("/models", "Troca o modelo/provedor LLM"),
+        ("/mode <sandbox|terminal>", "Alterna entre sandbox e execução no host"),
         ("/plan <tarefa>", "Cria e executa um plano passo a passo"),
         ("/plan bmad <ideia>", "Análise BMAD de modelo de negócio"),
         ("/team <tarefa>", "Executa com equipe multi-agente"),
@@ -786,6 +799,111 @@ def _print_config_menu(config: Dict[str, Any]) -> None:
     print(f"{_color('│', 33)}    • {_color('/config get <key>', 33)}      - Lê valor de uma variável")
     print(f"{_color('│', 33)}    • {_color('/config set <key> <value>', 33)} - Define variável no .env")
     print(f"{_color('│', 33)}    • {_color('/config list-models [provider]', 33)} - Lista modelos disponíveis")
+    print(bottom)
+    print()
+
+
+def _handle_mode_command(text: str) -> None:
+    """Handle /mode subcommands to switch execution permission at runtime."""
+    from zeus.security.permissions import PermissionManager
+
+    parts = text.split(maxsplit=1)
+    subcmd = parts[1].lower().strip() if len(parts) > 1 else ""
+
+    pm = PermissionManager()
+
+    if subcmd in ("", "menu", "status"):
+        _print_mode_menu()
+        return
+
+    if subcmd in ("sandbox", "safe"):
+        _set_zeus_env("ZEUS_EXECUTION_PERMISSION", "sandbox_only")
+        print(f"\n{_color('🛡️  Modo sandbox ativado.', 32)}")
+        print(f"{_color('   run_terminal está bloqueado.', 90)}\n")
+        return
+
+    if subcmd in ("terminal", "host", "allow"):
+        _set_zeus_env("ZEUS_EXECUTION_PERMISSION", "allow")
+        print(f"\n{_color('⚡ Modo terminal ativado.', 33)}")
+        print(f"{_color('   run_terminal está liberado no host.', 90)}")
+        print(f"{_color('   Use com cuidado.', 31)}\n")
+        return
+
+    if subcmd.startswith("file "):
+        level = subcmd[len("file "):].strip()
+        if level not in PermissionManager.FILE_LEVELS:
+            print(f"\n{_color('❌ Nível de arquivo inválido:', '1;31')} {level}")
+            print(f"{_color('Use:', 90)} /mode file read_only | project_only | unrestricted\n")
+            return
+        _set_zeus_env("ZEUS_FILE_PERMISSION", level)
+        print(f"\n{_color('📁  Permissão de arquivo:', 32)} {level}\n")
+        return
+
+    print(f"\n{_color('❌ Modo desconhecido:', '1;31')} {subcmd}")
+    print(f"{_color('Use:', 90)} /mode sandbox | terminal | file <nível>\n")
+
+
+def _set_zeus_env(key: str, value: str) -> None:
+    """Update an env variable both in the current process and in ~/.zeus/.env."""
+    os.environ[key] = value
+    zeus_home = Path(os.getenv("ZEUS_HOME", os.path.expanduser("~/.zeus")))
+    env_file = zeus_home / ".env"
+
+    lines: List[str] = []
+    if env_file.exists():
+        with env_file.open("r", encoding="utf-8") as f:
+            lines = f.readlines()
+
+    found = False
+    new_lines: List[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith(f"{key}=") or stripped.startswith(f"{key} =") or stripped.startswith(f"#{key}="):
+            new_lines.append(f"{key}={value}\n")
+            found = True
+        else:
+            new_lines.append(line)
+
+    if not found:
+        if new_lines and not new_lines[-1].endswith("\n"):
+            new_lines.append("\n")
+        new_lines.append(f"{key}={value}\n")
+
+    zeus_home.mkdir(parents=True, exist_ok=True)
+    with env_file.open("w", encoding="utf-8") as f:
+        f.writelines(new_lines)
+
+
+def _print_mode_menu() -> None:
+    """Print current execution mode and available options."""
+    from zeus.security.permissions import PermissionManager
+
+    pm = PermissionManager()
+    exec_mode = pm.exec_level
+    file_mode = pm.file_level
+
+    term_width = _get_term_width()
+    title = " 🛡️  MODO DE EXECUÇÃO "
+    line_length = max(10, term_width - len(title) - 6)
+    top = _color("╭──", 33) + _color(title, "1;33") + _color("" * line_length, 33)
+    bottom = _color("╰" + "─" * (term_width - 3), 33)
+
+    exec_label = _color("● Terminal", 31) if exec_mode == "allow" else _color("● Sandbox", 32)
+    file_label = {
+        "read_only": _color("read_only", 32),
+        "project_only": _color("project_only", 33),
+        "unrestricted": _color("unrestricted", 31),
+    }.get(file_mode, file_mode)
+
+    print()
+    print(top)
+    print(f"{_color('│', 33)}  {_color('Execução:', 90)} {exec_label}")
+    print(f"{_color('│', 33)}  {_color('Arquivos:', 90)} {file_label}")
+    print(f"{_color('│', 33)}")
+    print(f"{_color('│', 33)}  {_color('Comandos:', 90)}")
+    print(f"{_color('│', 33)}    • {_color('/mode sandbox', 33)}  - Apenas execução sandbox")
+    print(f"{_color('│', 33)}    • {_color('/mode terminal', 33)} - Libera run_terminal no host")
+    print(f"{_color('│', 33)}    • {_color('/mode file <read_only|project_only|unrestricted>', 33)}")
     print(bottom)
     print()
 
@@ -1199,6 +1317,9 @@ def main() -> None:
             _load_env(override=True)
             continue
 
+        if text == "/mode" or text.startswith("/mode "):
+            _handle_mode_command(text)
+            continue
 
         if text.startswith("/team "):
             task = text[len("/team "):].strip()

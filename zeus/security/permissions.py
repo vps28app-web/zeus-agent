@@ -44,13 +44,8 @@ class PermissionManager:
         confirm_callback: Optional[Callable[[str], bool]] = None,
         user_id: Optional[str] = None,
     ):
-        self.exec_level = (exec_level or os.getenv("ZEUS_EXECUTION_PERMISSION", "sandbox_only")).lower()
-        if self.exec_level not in self.EXEC_LEVELS:
-            self.exec_level = "sandbox_only"
-
-        self.file_level = (file_level or os.getenv("ZEUS_FILE_PERMISSION", "read_only")).lower()
-        if self.file_level not in self.FILE_LEVELS:
-            self.file_level = "read_only"
+        self._exec_level_override = exec_level.lower() if exec_level else None
+        self._file_level_override = file_level.lower() if file_level else None
 
         self.project_dir = (project_dir or Path(os.getenv("ZEUS_PROJECT_DIR", Path.cwd()))).resolve()
         self.confirm_callback = confirm_callback
@@ -60,6 +55,26 @@ class PermissionManager:
         self._confirmed_actions: Set[str] = set()
         self._once_confirmed_actions: Set[str] = set()
         self._lock = threading.Lock()
+
+    @property
+    def exec_level(self) -> str:
+        level = self._exec_level_override or os.getenv("ZEUS_EXECUTION_PERMISSION", "sandbox_only")
+        level = level.lower()
+        return level if level in self.EXEC_LEVELS else "sandbox_only"
+
+    @exec_level.setter
+    def exec_level(self, value: str) -> None:
+        self._exec_level_override = value.lower() if value else None
+
+    @property
+    def file_level(self) -> str:
+        level = self._file_level_override or os.getenv("ZEUS_FILE_PERMISSION", "read_only")
+        level = level.lower()
+        return level if level in self.FILE_LEVELS else "read_only"
+
+    @file_level.setter
+    def file_level(self, value: str) -> None:
+        self._file_level_override = value.lower() if value else None
 
     # ------------------------------------------------------------------
     # Execution permissions
