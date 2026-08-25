@@ -10,14 +10,22 @@ ZEUS_FILE_PERMISSION levels:
 - "project_only": read/write allowed only inside project dir without confirmation
 - "unrestricted": full access without confirmation
 
+ZEUS_EXECUTION_MODE controls runtime behavior around terminal execution:
+- "terminal": ask user confirmation for medium/high-risk terminal commands
+- "auto": execute terminal commands automatically, only show the result
+
+ZEUS_DRY_RUN when "1" makes every mutating tool return a simulation instead
+of actually executing.
+
 Confirmed actions are persisted per session in memory and optionally per user in SQLite.
 """
 
 import os
 import re
+import json
 import threading
 from pathlib import Path
-from typing import Callable, Optional, Set
+from typing import Any, Callable, Dict, Optional, Set
 
 
 class PermissionRequired(Exception):
@@ -35,6 +43,40 @@ class PermissionManager:
 
     EXEC_LEVELS = ("deny", "sandbox_only", "allow")
     FILE_LEVELS = ("read_only", "project_only", "unrestricted")
+    EXECUTION_MODES = ("terminal", "auto")
+
+    # Tools that are never allowed when read-only mode is active.
+    READ_ONLY_BLOCKED_TOOLS = {
+        "write_file",
+        "replace_file_content",
+        "move_file",
+        "copy_file",
+        "delete_file",
+        "run_terminal",
+        "run_background_command",
+        "terminate_command",
+        "execute_python",
+        "execute_shell_script",
+        "manage_packages",
+        "git_commit",
+        "git_push",
+        "git_reset",
+        "git_clean",
+        "git_checkout",
+        "scheduler_schedule",
+    }
+
+    # Tools that always require confirmation in terminal mode (human-in-the-loop).
+    TERMINAL_CONFIRM_TOOLS = {
+        "run_terminal",
+        "run_background_command",
+        "terminate_command",
+        "manage_packages",
+        "git_push",
+        "git_reset",
+        "git_clean",
+        "git_checkout",
+    }
 
     def __init__(
         self,
@@ -56,6 +98,9 @@ class PermissionManager:
         self._once_confirmed_actions: Set[str] = set()
         self._lock = threading.Lock()
 
+    # ------------------------------------------------------------------
+    # Env-backed properties
+    # ------------------------------------------------------------------
     @property
     def exec_level(self) -> str:
         level = self._exec_level_override or os.getenv("ZEUS_EXECUTION_PERMISSION", "sandbox_only")
@@ -75,6 +120,159 @@ class PermissionManager:
     @file_level.setter
     def file_level(self, value: str) -> None:
         self._file_level_override = value.lower() if value else None
+
+    @property
+    def execution_mode(self) -> str:
+        mode = os.getenv("ZEUS_EXECUTION_MODE", "terminal").lower()
+        return mode if mode in self.EXECUTION_MODES else "terminal"
+
+    @property
+    def dry_run(self) -> bool:
+        return os.getenv("ZEUS_DRY_RUN", "0").strip().lower() in ("1", "true", "yes", "on")
+
+    @property
+    def read_only(self) -> bool:
+        return os.getenv("ZEUS_READ_ONLY", "0").strip().lower() in ("1", "true", "yes", "on")
+
+    # ------------------------------------------------------------------
+    # Mode helpers
+    # ------------------------------------------------------------------
+    def is_tool_allowed(self, tool_name: str) -> bool:
+        """Return False if the tool is blocked by read-only mode."""
+        if not self.read_only:
+            return True
+        return tool_name not in self.READ_ONLY_BLOCKED_TOOLS
+
+    def is_confirmation_required(self, tool_name: str, arguments: Optional[Dict[str, Any]] = None) -> bool:
+        """Return True if the tool should prompt for explicit user confirmation."""
+        if self.execution_mode == "auto":
+            return False
+        if tool_name not in self.TERMINAL_CONFIRM_TOOLS:
+            return False
+        # For terminal commands, high/medium risk always asks in terminal mode.
+        risk = self.classify_tool_risk(tool_name, arguments or {})
+        return risk in ("high", "medium")
+
+    def classify_tool_risk(self, tool_name: str, arguments: Dict[str, Any]) -> str:
+        """Classify the risk level of a tool call (none, medium, high)."""
+        if tool_name in ("run_terminal", "run_background_command"):
+            command = (arguments.get("command") or "").lower()
+            # High-risk shell patterns.
+            dangerous = [
+                r"\brm\s+-rf\s+/",
+                r"\bmkfs\.",
+                r"\bdd\s+if=",
+                r"\bchmod\s+-R\s+777\s+/",
+                r"\bcurl\s+.*\|\s*bash",
+                r"\bwget\s+.*\|\s*bash",
+                r"\bsudo\b",
+                r"\bshutdown\b",
+                r"\breboot\b",
+                r"\bformat\b",
+                r"\bfdisk\b",
+                r"\bdocker\s+(system\s+prune|rm\s+-f)",
+                r">\s*/dev/[sh]d",
+                r"\bkill\s+-9\b",
+            ]
+            for pattern in dangerous:
+                if re.search(pattern, command, re.IGNORECASE):
+                    return "high"
+            # Medium-risk if it mutates system/project state.
+            medium = [
+                r"\b(apt|apt-get|yum|dnf|pacman|brew)\s+(install|remove|purge|autoremove|upgrade|update)",
+                r"\bpip\s+(install|uninstall)",
+                r"\brm\s+-rf\b",
+                r"\bgit\s+push\b",
+                r"\bgit\s+reset\s+--hard\b",
+                r"\bgit\s+clean\b",
+                r"\bsystemctl\b",
+                r"\bservice\s+\w+\s+(start|stop|restart)",
+            ]
+            for pattern in medium:
+                if re.search(pattern, command, re.IGNORECASE):
+                    return "medium"
+            return "medium" if command.strip() else "none"
+
+        if tool_name == "terminate_command":
+            return "medium"
+
+        if tool_name == "manage_packages":
+            operation = (arguments.get("operation") or "").lower()
+            if operation in ("install", "remove", "purge", "update", "upgrade"):
+                return "high" if operation in ("remove", "purge") else "medium"
+            return "low"
+
+        if tool_name in ("git_push", "git_reset", "git_clean", "git_checkout"):
+            return "high" if tool_name == "git_reset" else "medium"
+
+        return "none"
+
+    def confirm_tool(self, tool_name: str, arguments: Dict[str, Any], scope: str = "once") -> bool:
+        """Ask the user for permission to execute a risky tool."""
+        action_key = f"tool:{tool_name}:{self._tool_signature(tool_name, arguments)}"
+        category_key = f"tool:{tool_name}:*"
+
+        with self._lock:
+            if action_key in self._once_confirmed_actions:
+                self._once_confirmed_actions.remove(action_key)
+                return True
+            if category_key in self._once_confirmed_actions:
+                self._once_confirmed_actions.remove(category_key)
+                return True
+            if action_key in self._confirmed_actions or category_key in self._confirmed_actions:
+                return True
+
+        persistent = self._load_persistent_confirmations()
+        if action_key in persistent or category_key in persistent:
+            with self._lock:
+                self._confirmed_actions.add(category_key)
+            return True
+
+        summary = self._format_tool_summary(tool_name, arguments)
+        message = (
+            f"Execution confirmation / Confirmação de execução:\n"
+            f"  • Tool / Ferramenta: {tool_name}\n"
+            f"  • Command / Comando: {summary}\n"
+            f"  • Mode / Modo: {self.execution_mode}"
+        )
+        answer = self._confirm(message)
+        choice = self._normalize_confirmation_answer(answer)
+        if choice == "deny" or choice is None:
+            return False
+        if choice == "always":
+            with self._lock:
+                self._confirmed_actions.add(category_key)
+            return True
+        if choice == "persist":
+            with self._lock:
+                self._confirmed_actions.add(category_key)
+            self._save_persistent_confirmation(category_key)
+            return True
+        with self._lock:
+            self._once_confirmed_actions.add(action_key)
+        return True
+
+    def _tool_signature(self, tool_name: str, arguments: Dict[str, Any]) -> str:
+        """Create a stable signature for a specific tool call."""
+        if tool_name in ("run_terminal", "run_background_command"):
+            return arguments.get("command", "")
+        if tool_name == "manage_packages":
+            return f"{arguments.get('operation')}:{arguments.get('package_name')}"
+        if tool_name.startswith("git_"):
+            return arguments.get("args", "")
+        return json.dumps(arguments, sort_keys=True, default=str)
+
+    def _format_tool_summary(self, tool_name: str, arguments: Dict[str, Any]) -> str:
+        """Human-readable summary of a tool call for confirmation prompts."""
+        if tool_name in ("run_terminal", "run_background_command"):
+            return arguments.get("command", "")
+        if tool_name == "terminate_command":
+            return f"command_id={arguments.get('command_id', '')}"
+        if tool_name == "manage_packages":
+            return f"{arguments.get('operation')} {arguments.get('package_name', '')}"
+        if tool_name.startswith("git_"):
+            return arguments.get("args", "")
+        return json.dumps(arguments, sort_keys=True, default=str)
 
     # ------------------------------------------------------------------
     # Execution permissions
@@ -326,6 +524,24 @@ DANGEROUS_SHELL_PATTERNS = [
     re.compile(r"\bcurl\s+.*\|\s*bash", re.IGNORECASE),
     re.compile(r"\bwget\s+.*\|\s*bash", re.IGNORECASE),
 ]
+
+# Global PermissionManager instance used by tools that do not inject their own.
+_global_permission_manager: Optional[PermissionManager] = None
+
+
+def set_global_permission_manager(pm: PermissionManager) -> None:
+    """Set the global PermissionManager used by tools and the agent executor."""
+    global _global_permission_manager
+    _global_permission_manager = pm
+
+
+def get_global_permission_manager() -> PermissionManager:
+    """Return the configured global PermissionManager, creating a default if needed."""
+    global _global_permission_manager
+    if _global_permission_manager is None:
+        _global_permission_manager = PermissionManager()
+    return _global_permission_manager
+
 
 DANGEROUS_PYTHON_IMPORTS = {
     "builtins",

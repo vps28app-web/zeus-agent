@@ -136,6 +136,91 @@ def test_check_python_safety_syntax_error():
     assert check_python_safety("def foo(\n") is not None
 
 
+def test_execution_mode_terminal_requires_confirmation():
+    pm = PermissionManager(exec_level="allow")
+    assert pm.execution_mode == "terminal"
+    assert pm.is_confirmation_required("run_terminal", {"command": "apt install x"})
+    assert pm.is_confirmation_required("run_terminal", {"command": "ls"})
+    assert not pm.is_confirmation_required("read_file", {"path": "/tmp/x"})
+
+
+def test_execution_mode_auto_skips_confirmation():
+    import os
+    old = os.environ.get("ZEUS_EXECUTION_MODE")
+    os.environ["ZEUS_EXECUTION_MODE"] = "auto"
+    try:
+        pm = PermissionManager(exec_level="allow")
+        assert pm.execution_mode == "auto"
+        assert not pm.is_confirmation_required("run_terminal", {"command": "apt install x"})
+    finally:
+        if old is None:
+            os.environ.pop("ZEUS_EXECUTION_MODE", None)
+        else:
+            os.environ["ZEUS_EXECUTION_MODE"] = old
+
+
+def test_read_only_blocks_mutating_tools():
+    import os
+    old = os.environ.get("ZEUS_READ_ONLY")
+    os.environ["ZEUS_READ_ONLY"] = "1"
+    try:
+        pm = PermissionManager(exec_level="allow")
+        assert pm.read_only
+        assert not pm.is_tool_allowed("run_terminal")
+        assert not pm.is_tool_allowed("write_file")
+        assert pm.is_tool_allowed("read_file")
+        assert pm.is_tool_allowed("web_search")
+    finally:
+        if old is None:
+            os.environ.pop("ZEUS_READ_ONLY", None)
+        else:
+            os.environ["ZEUS_READ_ONLY"] = old
+
+
+def test_dry_run_flag():
+    import os
+    old = os.environ.get("ZEUS_DRY_RUN")
+    os.environ["ZEUS_DRY_RUN"] = "1"
+    try:
+        pm = PermissionManager()
+        assert pm.dry_run is True
+    finally:
+        if old is None:
+            os.environ.pop("ZEUS_DRY_RUN", None)
+        else:
+            os.environ["ZEUS_DRY_RUN"] = old
+
+
+def test_classify_tool_risk():
+    pm = PermissionManager(exec_level="allow")
+    assert pm.classify_tool_risk("run_terminal", {"command": "rm -rf /"}) == "high"
+    assert pm.classify_tool_risk("run_terminal", {"command": "apt install python3"}) == "medium"
+    assert pm.classify_tool_risk("run_terminal", {"command": ""}) == "none"
+    assert pm.classify_tool_risk("manage_packages", {"operation": "remove"}) == "high"
+    assert pm.classify_tool_risk("manage_packages", {"operation": "install"}) == "medium"
+    assert pm.classify_tool_risk("read_file", {"path": "/tmp/x"}) == "none"
+
+
+def test_confirm_tool_once():
+    calls = []
+
+    def callback(msg):
+        calls.append(msg)
+        return True
+
+    pm = PermissionManager(exec_level="allow", confirm_callback=callback)
+    assert pm.confirm_tool("run_terminal", {"command": "ls"})
+    assert len(calls) == 1
+
+
+def test_confirm_tool_denied():
+    def callback(msg):
+        return False
+
+    pm = PermissionManager(exec_level="allow", confirm_callback=callback)
+    assert not pm.confirm_tool("run_terminal", {"command": "ls"})
+
+
 if __name__ == "__main__":
     import pytest
     pytest.main([__file__, "-v"])

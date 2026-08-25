@@ -184,7 +184,7 @@ def normalize_tool_calls(response: Dict[str, Any]) -> tuple[Optional[AgentDecisi
     return decision, content
 
 
-def execute_tool_call(call: Dict[str, Any], metrics, tracer) -> Dict[str, Any]:
+def execute_tool_call(call: Dict[str, Any], metrics, tracer, confirm_callback=None) -> Dict[str, Any]:
     name = call.get("function", {}).get("name")
     arguments = call.get("function", {}).get("arguments", "{}")
     if isinstance(arguments, str):
@@ -206,6 +206,35 @@ def execute_tool_call(call: Dict[str, Any], metrics, tracer) -> Dict[str, Any]:
     if block_res:
         metrics.record_tool_call(name or "unknown", 0, error=True, result_summary=str(block_res))
         return {"tool": name, "result": block_res}
+
+    # Enforce read-only mode
+    from zeus.security.permissions import get_global_permission_manager
+    pm = get_global_permission_manager()
+    if not pm.is_tool_allowed(name):
+        msg = f"Tool '{name}' is blocked in read-only mode / ferramenta bloqueada no modo somente leitura."
+        metrics.record_tool_call(name or "unknown", 0, error=True, result_summary=msg)
+        return {"tool": name, "error": msg}
+
+    # Enforce dry-run mode for mutating tools
+    if pm.dry_run and name in pm.READ_ONLY_BLOCKED_TOOLS:
+        summary = pm._format_tool_summary(name, arguments)
+        sim_result = {
+            "tool": name,
+            "dry_run": True,
+            "result": {
+                "status": "simulated",
+                "message": f"[DRY-RUN] {name} NÃO executado.\nComando/argumentos: {summary}\nImpacto esperado: a operação seria executada no ambiente real.",
+            },
+        }
+        metrics.record_tool_call(name, 0, error=False, result_summary="dry-run simulation")
+        return sim_result
+
+    # Human-in-the-loop confirmation for terminal mode
+    if pm.is_confirmation_required(name, arguments):
+        if not pm.confirm_tool(name, arguments):
+            msg = f"Execution of '{name}' was denied by user / execução negada pelo usuário."
+            metrics.record_tool_call(name or "unknown", 0, error=True, result_summary=msg)
+            return {"tool": name, "error": msg}
 
     span = tracer.start_span("tool_call", {"tool": name, "arguments": arguments})
     start = time.time()

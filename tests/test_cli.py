@@ -79,3 +79,92 @@ def test_print_agent_response_card_status():
     assert "SECURITY" in output2
 
 
+
+
+def test_print_command_menu_shows_new_modes():
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        _print_command_menu()
+    output = buf.getvalue()
+    assert "/mode <sandbox|terminal|auto|dryrun|readonly>" in output
+
+
+def test_handle_mode_command_sets_terminal_mode(monkeypatch):
+    import os
+    import sys
+    cli_main = sys.modules["zeus.cli.main"]
+
+    env_updates = {}
+
+    def fake_set_zeus_env(key, value):
+        env_updates[key] = value
+        os.environ[key] = value
+
+    monkeypatch.setattr(cli_main, "_set_zeus_env", fake_set_zeus_env)
+
+    cli_main._handle_mode_command("/mode terminal")
+    assert env_updates.get("ZEUS_EXECUTION_PERMISSION") == "allow"
+    assert env_updates.get("ZEUS_EXECUTION_MODE") == "terminal"
+    assert env_updates.get("ZEUS_DRY_RUN") == "0"
+    assert env_updates.get("ZEUS_READ_ONLY") == "0"
+
+
+def test_handle_mode_command_sets_auto_mode(monkeypatch):
+    import os
+    import sys
+    cli_main = sys.modules["zeus.cli.main"]
+
+    env_updates = {}
+
+    def fake_set_zeus_env(key, value):
+        env_updates[key] = value
+        os.environ[key] = value
+
+    monkeypatch.setattr(cli_main, "_set_zeus_env", fake_set_zeus_env)
+
+    cli_main._handle_mode_command("/mode auto")
+    assert env_updates.get("ZEUS_EXECUTION_PERMISSION") == "allow"
+    assert env_updates.get("ZEUS_EXECUTION_MODE") == "auto"
+    assert env_updates.get("ZEUS_DRY_RUN") == "0"
+    assert env_updates.get("ZEUS_READ_ONLY") == "0"
+
+
+def test_handle_mode_command_sets_dryrun_mode(monkeypatch):
+    import os
+    import sys
+    cli_main = sys.modules["zeus.cli.main"]
+
+    env_updates = {}
+
+    def fake_set_zeus_env(key, value):
+        env_updates[key] = value
+        os.environ[key] = value
+
+    monkeypatch.setattr(cli_main, "_set_zeus_env", fake_set_zeus_env)
+
+    cli_main._handle_mode_command("/mode dryrun")
+    assert env_updates.get("ZEUS_EXECUTION_PERMISSION") == "allow"
+    assert env_updates.get("ZEUS_DRY_RUN") == "1"
+    assert env_updates.get("ZEUS_READ_ONLY") == "0"
+
+
+def test_handle_mode_command_sets_readonly_mode(monkeypatch):
+    import os
+    import sys
+    cli_main = sys.modules["zeus.cli.main"]
+
+    env_updates = {}
+
+    def fake_set_zeus_env(key, value):
+        env_updates[key] = value
+        os.environ[key] = value
+
+    monkeypatch.setattr(cli_main, "_set_zeus_env", fake_set_zeus_env)
+
+    cli_main._handle_mode_command("/mode readonly")
+    assert env_updates.get("ZEUS_EXECUTION_PERMISSION") == "deny"
+    assert env_updates.get("ZEUS_READ_ONLY") == "1"
+    assert env_updates.get("ZEUS_DRY_RUN") == "0"
+
+
+

@@ -31,7 +31,7 @@ class ZeusCommandCompleter(Completer):
         "/learn": "Aprendizados passados: /learn list, /learn search <query>, /learn add <p> | <s>",
         "/brain": "Dashboard de inteligência e aprendizado contínuo",
         "/models": "Troca o modelo/provedor LLM",
-        "/mode": "Alterna entre sandbox e terminal (execução no host)",
+        "/mode": "Alterna entre sandbox, terminal, auto, dryrun e readonly",
         "/plan": "Cria e executa um plano passo a passo (use /plan bmad <ideia> para análise de modelo de negócio)",
         "/team": "Executa com equipe multi-agente",
         "/exit": "Encerra o Zeus",
@@ -39,7 +39,7 @@ class ZeusCommandCompleter(Completer):
     }
 
     SKILL_SETS = ["coding", "security", "research", "memory", "all"]
-    MODES = ["sandbox", "terminal"]
+    MODES = ["sandbox", "terminal", "auto", "dryrun", "readonly"]
 
     def get_completions(self, document, complete_event):
         text = document.text_before_cursor
@@ -511,7 +511,8 @@ def _print_command_menu() -> None:
         ("/learn", "Aprendizados passados (list/search/add/stats/forget)"),
         ("/brain", "Dashboard de inteligência e aprendizado contínuo"),
         ("/models", "Troca o modelo/provedor LLM"),
-        ("/mode <sandbox|terminal>", "Alterna entre sandbox e execução no host"),
+        ("/mode <sandbox|terminal|auto|dryrun|readonly>", "Alterna modo de execução e segurança"),
+        ("/mode status", "Mostra apenas o status atual do agente"),
         ("/plan <tarefa>", "Cria e executa um plano passo a passo"),
         ("/plan bmad <ideia>", "Análise BMAD de modelo de negócio"),
         ("/team <tarefa>", "Executa com equipe multi-agente"),
@@ -806,7 +807,7 @@ def _print_config_menu(config: Dict[str, Any]) -> None:
 
 
 def _handle_mode_command(text: str) -> None:
-    """Handle /mode subcommands to switch execution permission at runtime."""
+    """Handle /mode subcommands to switch execution permission and runtime mode."""
     from zeus.security.permissions import PermissionManager
 
     parts = text.split(maxsplit=1)
@@ -814,21 +815,59 @@ def _handle_mode_command(text: str) -> None:
 
     pm = PermissionManager()
 
-    if subcmd in ("", "menu", "status"):
-        _print_mode_menu()
+    if subcmd in ("", "menu"):
+        _print_mode_menu(show_commands=True)
+        return
+
+    if subcmd == "status":
+        _print_mode_menu(show_commands=False)
         return
 
     if subcmd in ("sandbox", "safe"):
         _set_zeus_env("ZEUS_EXECUTION_PERMISSION", "sandbox_only")
+        _set_zeus_env("ZEUS_EXECUTION_MODE", "terminal")
+        _set_zeus_env("ZEUS_DRY_RUN", "0")
+        _set_zeus_env("ZEUS_READ_ONLY", "0")
         print(f"\n{_color('🛡️  Modo sandbox ativado.', 32)}")
-        print(f"{_color('   run_terminal está bloqueado.', 90)}\n")
+        print(f"{_color('   Terminal do host bloqueado.', 90)}\n")
         return
 
-    if subcmd in ("terminal", "host", "allow"):
+    if subcmd in ("terminal", "host"):
         _set_zeus_env("ZEUS_EXECUTION_PERMISSION", "allow")
+        _set_zeus_env("ZEUS_EXECUTION_MODE", "terminal")
+        _set_zeus_env("ZEUS_DRY_RUN", "0")
+        _set_zeus_env("ZEUS_READ_ONLY", "0")
         print(f"\n{_color('⚡ Modo terminal ativado.', 33)}")
-        print(f"{_color('   run_terminal está liberado no host.', 90)}")
-        print(f"{_color('   Use com cuidado.', 31)}\n")
+        print(f"{_color('   run_terminal liberado com confirmação humana.', 90)}")
+        print(f"{_color('   Comandos de alto risco pedirão aprovação.', 31)}\n")
+        return
+
+    if subcmd == "auto":
+        _set_zeus_env("ZEUS_EXECUTION_PERMISSION", "allow")
+        _set_zeus_env("ZEUS_EXECUTION_MODE", "auto")
+        _set_zeus_env("ZEUS_DRY_RUN", "0")
+        _set_zeus_env("ZEUS_READ_ONLY", "0")
+        print(f"\n{_color('🚀 Modo automático ativado.', 35)}")
+        print(f"{_color('   run_terminal executa sem confirmação.', 90)}")
+        print(f"{_color('   Apenas o resultado é apresentado.', 90)}\n")
+        return
+
+    if subcmd == "dryrun":
+        _set_zeus_env("ZEUS_EXECUTION_PERMISSION", "allow")
+        _set_zeus_env("ZEUS_EXECUTION_MODE", "terminal")
+        _set_zeus_env("ZEUS_DRY_RUN", "1")
+        _set_zeus_env("ZEUS_READ_ONLY", "0")
+        print(f"\n{_color('👁️  Modo dry-run ativado.', 36)}")
+        print(f"{_color('   Ferramentas mutantes são apenas simuladas.', 90)}\n")
+        return
+
+    if subcmd == "readonly":
+        _set_zeus_env("ZEUS_EXECUTION_PERMISSION", "deny")
+        _set_zeus_env("ZEUS_EXECUTION_MODE", "terminal")
+        _set_zeus_env("ZEUS_DRY_RUN", "0")
+        _set_zeus_env("ZEUS_READ_ONLY", "1")
+        print(f"\n{_color('🔍 Modo somente leitura ativado.', 34)}")
+        print(f"{_color('   Apenas ferramentas de leitura estão liberadas.', 90)}\n")
         return
 
     if subcmd.startswith("file "):
@@ -842,7 +881,7 @@ def _handle_mode_command(text: str) -> None:
         return
 
     print(f"\n{_color('❌ Modo desconhecido:', '1;31')} {subcmd}")
-    print(f"{_color('Use:', 90)} /mode sandbox | terminal | file <nível>\n")
+    print(f"{_color('Use:', 90)} /mode sandbox | terminal | auto | dryrun | readonly | file <nível>\n")
 
 
 def _set_zeus_env(key: str, value: str) -> None:
@@ -876,36 +915,56 @@ def _set_zeus_env(key: str, value: str) -> None:
         f.writelines(new_lines)
 
 
-def _print_mode_menu() -> None:
-    """Print current execution mode and available options."""
+def _print_mode_menu(show_commands: bool = True) -> None:
+    """Print current execution mode and available options in a status card."""
     from zeus.security.permissions import PermissionManager
 
     pm = PermissionManager()
     exec_mode = pm.exec_level
     file_mode = pm.file_level
+    runtime_mode = pm.execution_mode
+    dry_run = pm.dry_run
 
     term_width = _get_term_width()
-    title = " 🛡️  MODO DE EXECUÇÃO "
+    title = " STATUS DO AGENTE "
     line_length = max(10, term_width - len(title) - 6)
-    top = _color("╭──", 33) + _color(title, "1;33") + _color("" * line_length, 33)
+    top = _color("╭──", 33) + _color(title, "1;33") + _color("─" * line_length, 33)
     bottom = _color("╰" + "─" * (term_width - 3), 33)
+    sep = _color("│" + "─" * (term_width - 3), 33)
 
-    exec_label = _color("● Terminal", 31) if exec_mode == "allow" else _color("● Sandbox", 32)
-    file_label = {
-        "read_only": _color("read_only", 32),
-        "project_only": _color("project_only", 33),
-        "unrestricted": _color("unrestricted", 31),
-    }.get(file_mode, file_mode)
+    if exec_mode == "sandbox":
+        exec_label = f"{_color('●', 32)} {_color('SANDBOX', '1;32')}"
+        exec_detail = "Restringe comandos ao sandbox"
+    elif runtime_mode == "auto":
+        exec_label = f"{_color('●', 35)} {_color('AUTO', '1;35')}"
+        exec_detail = "Executa comandos automaticamente"
+    else:
+        exec_label = f"{_color('●', 33)} {_color('TERMINAL', '1;33')} ({_color('Manual', 37)})"
+        exec_detail = "Permite comandos com confirmação"
+
+    file_labels = {
+        "read_only": f"{_color('Apenas Leitura', 32)}",
+        "project_only": f"{_color('Projeto Apenas', 33)}",
+        "unrestricted": f"{_color('Total', 31)}",
+    }
+    file_label = file_labels.get(file_mode, file_mode)
+
+    dry_label = _color("ATIVADO", 36) if dry_run else _color("DESATIVADO", 90)
 
     print()
     print(top)
-    print(f"{_color('│', 33)}  {_color('Execução:', 90)} {exec_label}")
-    print(f"{_color('│', 33)}  {_color('Arquivos:', 90)} {file_label}")
-    print(f"{_color('│', 33)}")
-    print(f"{_color('│', 33)}  {_color('Comandos:', 90)}")
-    print(f"{_color('│', 33)}    • {_color('/mode sandbox', 33)}  - Apenas execução sandbox")
-    print(f"{_color('│', 33)}    • {_color('/mode terminal', 33)} - Libera run_terminal no host")
-    print(f"{_color('│', 33)}    • {_color('/mode file <read_only|project_only|unrestricted>', 33)}")
+    print(f"{_color('│', 33)}  {_color('Modo de Execução:', 90)}    {exec_label}")
+    print(f"{_color('│', 33)}  {_color('Permissão de Arquivos:', 90)} {file_label}")
+    print(f"{_color('│', 33)}  {_color('Simulação (Dry-run):', 90)} {dry_label}")
+    if show_commands:
+        print(sep)
+        print(f"{_color('│', 33)}  {_color('COMANDOS DE CONFIGURAÇÃO', '1;37')}")
+        print(f"{_color('│', 33)}  • {_color('/mode status', 33)}    - Mostra apenas o status atual")
+        print(f"{_color('│', 33)}  • {_color('/mode sandbox', 33)}   - {exec_detail if exec_mode == 'sandbox' else 'Restringe comandos ao sandbox'}")
+        print(f"{_color('│', 33)}  • {_color('/mode terminal', 33)}  - Permite comandos com confirmação")
+        print(f"{_color('│', 33)}  • {_color('/mode auto', 33)}      - Executa comandos automaticamente")
+        print(f"{_color('│', 33)}  • {_color('/mode dryrun', 33)}    - Apenas simula as ações")
+        print(f"{_color('│', 33)}  • {_color('/mode file <read_only|project_only|unrestricted>', 33)}")
     print(bottom)
     print()
 
@@ -1221,6 +1280,11 @@ def main() -> None:
     # Connect interactive file permission callback.
     from zeus.tools.file import set_file_permission_callback
     set_file_permission_callback(_ask_file_permission_prompt)
+
+    # Wire the same interactive confirmation callback into the global PermissionManager
+    # so that terminal-mode tool confirmations (human-in-the-loop) can prompt the user.
+    from zeus.security.permissions import PermissionManager, set_global_permission_manager
+    set_global_permission_manager(PermissionManager(confirm_callback=_ask_file_permission_prompt))
 
     _print_banner(logger, metrics)
     active_skill: Optional[set] = None
