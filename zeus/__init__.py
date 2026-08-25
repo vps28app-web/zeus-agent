@@ -6,9 +6,12 @@ __version__ = "0.1.0"
 from zeus.tools import (  # noqa: F401
     browser,
     code_execution,
+    config_tools,
     database,
     file,
     git,
+    learning_tools,
+    manage_packages,
     memory_tools,
     sandbox,
     scheduler,

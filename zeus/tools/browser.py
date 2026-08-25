@@ -53,7 +53,12 @@ def _start_chrome(user_data_dir: Path, port: int = 9222) -> subprocess.Popen:
         "--no-default-browser-check",
         "about:blank",
     ]
-    return subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return subprocess.Popen(
+        args,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
 
 
 def _get_ws_url(port: int = 9222, timeout: int = 10) -> str:
@@ -224,18 +229,44 @@ def _with_browser(func, *args, **kwargs) -> Dict[str, Any]:
         return {"error": str(e)}
     finally:
         if client:
-            client.close()
-        if process:
             try:
-                process.terminate()
-                process.wait(timeout=5)
+                client.close()
             except Exception:
-                process.kill()
+                pass
+        if process:
+            _kill_chrome_tree(process)
         # Cleanup temp profile
         try:
             shutil.rmtree(user_data_dir, ignore_errors=True)
         except Exception:
             pass
+
+
+def _kill_chrome_tree(process: subprocess.Popen) -> None:
+    """Terminate the whole Chrome process tree started via start_new_session."""
+    import signal
+
+    try:
+        pgid = os.getpgid(process.pid)
+        os.killpg(pgid, signal.SIGTERM)
+    except Exception:
+        try:
+            process.terminate()
+        except Exception:
+            pass
+
+    try:
+        process.wait(timeout=3)
+    except Exception:
+        try:
+            pgid = os.getpgid(process.pid)
+            os.killpg(pgid, signal.SIGKILL)
+        except Exception:
+            try:
+                process.kill()
+                process.wait(timeout=3)
+            except Exception:
+                pass
 
 
 def browser_navigate(url: str, wait_seconds: float = 2.0) -> Dict[str, Any]:

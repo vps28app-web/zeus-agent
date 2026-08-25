@@ -150,10 +150,12 @@ from zeus.observability import get_metrics  # noqa: E402
 from zeus.tools import (  # noqa: E402,F401
     browser,
     code_execution,
+    config_tools,
     database,
     file,
     git,
     learning_tools,
+    manage_packages,
     memory_tools,
     sandbox,
     sandbox_client,

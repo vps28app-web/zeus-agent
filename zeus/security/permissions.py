@@ -93,8 +93,10 @@ class PermissionManager:
 
     def denied_message(self, action: str) -> str:
         return (
-            f"Execution denied: {action} is not allowed at permission level '{self.exec_level}'. "
-            f"Set ZEUS_EXECUTION_PERMISSION=allow to enable it."
+            f"Execution denied / Execução negada: {action} is not allowed at permission level / "
+            f"não é permitido no nível '{self.exec_level}'. "
+            f"Switch to host mode / Mude para modo host: /mode terminal "
+            f"(or / ou ZEUS_EXECUTION_PERMISSION=allow)."
         )
 
     # ------------------------------------------------------------------
