@@ -30,7 +30,7 @@ class ZeusCommandCompleter(Completer):
         "/config": "Gerencia configurações do Zeus",
         "/learn": "Aprendizados passados: /learn list, /learn search <query>, /learn add <p> | <s>",
         "/brain": "Dashboard de inteligência e aprendizado contínuo",
-        "/models": "Troca o modelo/provedor LLM",
+        "/provider": "Troca o provedor e modelo LLM",
         "/mode": "Alterna entre sandbox, terminal, auto, dryrun e readonly",
         "/plan": "Cria e executa um plano passo a passo (use /plan bmad <ideia> para análise de modelo de negócio)",
         "/team": "Executa com equipe multi-agente",
@@ -330,7 +330,7 @@ def _format_command_lines(inner_width: int) -> List[str]:
     """Format the slash-command list into two balanced lines inside the banner."""
     prefix = "  Comandos:"
     prefix_width = _visible_width(prefix)
-    commands = ["/new", "/reset", "/clear", "/skills", "/models", "/mode", "/summary", "/help", "/exit"]
+    commands = ["/new", "/reset", "/clear", "/skills", "/provider", "/mode", "/summary", "/help", "/exit"]
 
     # Try to split into two balanced groups
     mid = (len(commands) + 1) // 2
@@ -623,7 +623,7 @@ def _print_command_menu() -> None:
         ("/config", "Gerencia configurações do Zeus (get/set/list)"),
         ("/learn", "Aprendizados passados (list/search/add/stats/forget)"),
         ("/brain", "Dashboard de inteligência e aprendizado contínuo"),
-        ("/models", "Troca o modelo/provedor LLM"),
+        ("/provider", "Troca o provedor e modelo LLM"),
         ("/mode <sandbox|terminal|auto|dryrun|readonly>", "Alterna modo de execução e segurança"),
         ("/mode status", "Mostra apenas o status atual do agente"),
         ("/plan <tarefa>", "Cria e executa um plano passo a passo"),
@@ -1516,10 +1516,13 @@ def main() -> int:
             print(f"{_color('Ferramentas disponíveis:', 90)} {count}\n")
             continue
 
-        if text == "/models":
+        if text == "/provider":
             from zeus.cli.setup_commands import setup_model
             setup_model()
             _load_env(override=True)
+            continue
+        if text == "/models":
+            print(f"\n{_color('Comando /models foi renomeado para /provider.', '1;33')}\n")
             continue
 
         if text == "/mode" or text.startswith("/mode "):

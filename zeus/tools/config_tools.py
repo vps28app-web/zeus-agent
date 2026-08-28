@@ -91,17 +91,166 @@ def list_available_models(provider: Optional[str] = None) -> Dict[str, Any]:
     if provider:
         prov_lower = provider.lower()
         if prov_lower in MODEL_PRESETS:
+            models = fetch_models(prov_lower)
+            if "error" not in models:
+                return models
+            # Fallback to static presets if API listing fails
             return {
                 "provider": prov_lower,
                 "models": [m[0] for m in MODEL_PRESETS[prov_lower]],
                 "details": MODEL_PRESETS[prov_lower],
+                "warning": models.get("error"),
             }
-        return {"error": f"Provider '{provider}' não encontrado.", "available_providers": list(MODEL_PRESETS.keys())}
+        return {"error": f"Provider '{provider}' n\u00e3o encontrado.", "available_providers": list(MODEL_PRESETS.keys())}
 
     return {
         "providers": list(MODEL_PRESETS.keys()),
         "presets": MODEL_PRESETS,
     }
+
+
+def fetch_models(provider: str) -> Dict[str, Any]:
+    """Fetch available models from a provider's API.
+
+    Falls back to returning an error dict if the request fails or the provider
+    does not expose a public model listing endpoint.
+    """
+    import requests
+
+    provider = provider.lower()
+
+    if provider == "openai":
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            return {"error": "OPENAI_API_KEY n\u00e3o configurada."}
+        try:
+            response = requests.get(
+                "https://api.openai.com/v1/models",
+                headers={"Authorization": f"Bearer {api_key}"},
+                timeout=30,
+            )
+            response.raise_for_status()
+            data = response.json()
+            models = sorted(m.get("id", "") for m in data.get("data", []) if m.get("id"))
+            return {"provider": provider, "models": models}
+        except Exception as exc:
+            return {"error": f"Falha ao listar modelos OpenAI: {exc}"}
+
+    if provider == "openrouter":
+        api_key = os.getenv("OPENROUTER_API_KEY")
+        if not api_key:
+            return {"error": "OPENROUTER_API_KEY n\u00e3o configurada."}
+        try:
+            response = requests.get(
+                "https://openrouter.ai/api/v1/models",
+                headers={"Authorization": f"Bearer {api_key}"},
+                timeout=30,
+            )
+            response.raise_for_status()
+            data = response.json()
+            models = sorted(m.get("id", "") for m in data.get("data", []) if m.get("id"))
+            return {"provider": provider, "models": models}
+        except Exception as exc:
+            return {"error": f"Falha ao listar modelos OpenRouter: {exc}"}
+
+    if provider == "anthropic":
+        # Anthropic does not expose a public models endpoint; use static presets.
+        from zeus.cli.setup_commands import MODEL_PRESETS
+
+        return {
+            "provider": provider,
+            "models": [m[0] for m in MODEL_PRESETS.get(provider, [])],
+            "details": MODEL_PRESETS.get(provider, []),
+        }
+
+    if provider == "google":
+        api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            return {"error": "GEMINI_API_KEY ou GOOGLE_API_KEY n\u00e3o configurada."}
+        try:
+            response = requests.get(
+                "https://generativelanguage.googleapis.com/v1beta/models",
+                params={"key": api_key},
+                timeout=30,
+            )
+            response.raise_for_status()
+            data = response.json()
+            models = sorted(m.get("name", "").replace("models/", "") for m in data.get("models", []) if m.get("name"))
+            return {"provider": provider, "models": models}
+        except Exception as exc:
+            return {"error": f"Falha ao listar modelos Google: {exc}"}
+
+    if provider == "deepseek":
+        api_key = os.getenv("DEEPSEEK_API_KEY")
+        if not api_key:
+            return {"error": "DEEPSEEK_API_KEY n\u00e3o configurada."}
+        try:
+            response = requests.get(
+                "https://api.deepseek.com/v1/models",
+                headers={"Authorization": f"Bearer {api_key}"},
+                timeout=30,
+            )
+            response.raise_for_status()
+            data = response.json()
+            models = sorted(m.get("id", "") for m in data.get("data", []) if m.get("id"))
+            return {"provider": provider, "models": models}
+        except Exception as exc:
+            return {"error": f"Falha ao listar modelos DeepSeek: {exc}"}
+
+    if provider == "mistral":
+        api_key = os.getenv("MISTRAL_API_KEY")
+        if not api_key:
+            return {"error": "MISTRAL_API_KEY n\u00e3o configurada."}
+        try:
+            response = requests.get(
+                "https://api.mistral.ai/v1/models",
+                headers={"Authorization": f"Bearer {api_key}"},
+                timeout=30,
+            )
+            response.raise_for_status()
+            data = response.json()
+            models = sorted(m.get("id", "") for m in data.get("data", []) if m.get("id"))
+            return {"provider": provider, "models": models}
+        except Exception as exc:
+            return {"error": f"Falha ao listar modelos Mistral: {exc}"}
+
+    if provider == "ollama":
+        host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+        try:
+            response = requests.get(
+                f"{host.rstrip('/')}/api/tags",
+                timeout=10,
+            )
+            response.raise_for_status()
+            data = response.json()
+            models = sorted(m.get("name", "") for m in data.get("models", []) if m.get("name"))
+            return {"provider": provider, "models": models}
+        except Exception as exc:
+            return {"error": f"Falha ao listar modelos Ollama: {exc}"}
+
+    if provider == "opencode_go":
+        api_key = os.getenv("OPENCODE_GO_API_KEY")
+        base_url = os.getenv("OPENCODE_GO_BASE_URL", "https://api.opencode.co/v1")
+        if not api_key:
+            return {"error": "OPENCODE_GO_API_KEY n\u00e3o configurada."}
+        try:
+            response = requests.get(
+                f"{base_url.rstrip('/')}/models",
+                headers={"Authorization": f"Bearer {api_key}"},
+                timeout=30,
+            )
+            response.raise_for_status()
+            data = response.json()
+            # OpenAI-compatible /v1/models returns {"data": [{"id": ...}]}
+            if "data" in data and isinstance(data["data"], list):
+                models = sorted(m.get("id", "") for m in data["data"] if m.get("id"))
+            else:
+                models = sorted(data.keys()) if isinstance(data, dict) else []
+            return {"provider": provider, "models": models}
+        except Exception as exc:
+            return {"error": f"Falha ao listar modelos OpenCode Go: {exc}"}
+
+    return {"error": f"Provider '{provider}' n\u00e3o suportado para listagem din\u00e2mica."}
 
 
 register_tool(
