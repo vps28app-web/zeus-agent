@@ -92,14 +92,14 @@ def list_available_models(provider: Optional[str] = None) -> Dict[str, Any]:
         prov_lower = provider.lower()
         if prov_lower in MODEL_PRESETS:
             models = fetch_models(prov_lower)
-            if "error" not in models:
+            if "error" not in models and models.get("models"):
                 return models
-            # Fallback to static presets if API listing fails
+            # Fallback to static presets if API listing fails or returns empty
             return {
                 "provider": prov_lower,
                 "models": [m[0] for m in MODEL_PRESETS[prov_lower]],
                 "details": MODEL_PRESETS[prov_lower],
-                "warning": models.get("error"),
+                "warning": models.get("error") if "error" in models else "API retornou lista vazia",
             }
         return {"error": f"Provider '{provider}' n\u00e3o encontrado.", "available_providers": list(MODEL_PRESETS.keys())}
 
