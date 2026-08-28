@@ -9,10 +9,13 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from zeus.core.registry import register_tool
-from zeus.security.permissions import PermissionManager, check_shell_safety
+from zeus.security.permissions import (
+    check_shell_safety,
+    get_global_permission_manager,
+)
 from zeus.tools.sandbox_client import safe_environment
 
-_permissions = PermissionManager()
+_permissions = get_global_permission_manager()
 _background_processes: Dict[str, Dict[str, Any]] = {}
 
 
@@ -108,6 +111,7 @@ def run_background_command(command: str, cwd: Optional[str] = None) -> Dict[str,
         bufsize=1,
         cwd=working_dir,
         env=safe_environment(),
+        start_new_session=True,
     )
 
     _background_processes[cmd_id] = {
@@ -168,18 +172,38 @@ def command_status(command_id: str, max_lines: int = 50) -> Dict[str, Any]:
 
 
 def terminate_command(command_id: str) -> Dict[str, Any]:
-    """Terminate a running background command by command_id."""
+    """Terminate a running background command by command_id and its subprocess tree."""
+    import signal
+
     if command_id not in _background_processes:
         return {"error": f"Background command ID not found: {command_id}"}
 
     entry = _background_processes[command_id]
     proc: subprocess.Popen = entry["process"]
+    pid = proc.pid
+
+    def kill_tree(sig: int) -> None:
+        try:
+            pgid = os.getpgid(pid)
+            os.killpg(pgid, sig)
+        except ProcessLookupError:
+            pass
+        except Exception:
+            try:
+                os.kill(pid, sig)
+            except Exception:
+                pass
+
     if proc.poll() is None:
         try:
-            proc.terminate()
-            proc.wait(timeout=2)
+            kill_tree(signal.SIGTERM)
+            proc.wait(timeout=3)
         except Exception:
-            proc.kill()
+            try:
+                kill_tree(signal.SIGKILL)
+                proc.wait(timeout=2)
+            except Exception:
+                pass
         action_str = "terminated"
     else:
         action_str = "already_finished"
@@ -188,7 +212,7 @@ def terminate_command(command_id: str) -> Dict[str, Any]:
         "status": "success",
         "command_id": command_id,
         "action": action_str,
-        "message": f"Process {command_id} (PID {proc.pid}) status: {action_str}.",
+        "message": f"Process {command_id} (PID {pid}) status: {action_str}.",
     }
 
 

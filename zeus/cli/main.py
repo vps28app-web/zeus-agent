@@ -253,7 +253,32 @@ def _format_tokens(count: int) -> str:
         return f"{val:.1f}b" if val < 10 else f"{int(val)}b"
 
 
+def _supports_color() -> bool:
+    """Return True if the terminal supports ANSI colors.
+
+    Honors NO_COLOR, FORCE_COLOR, TERM=dumb, and non-TTY output.
+    """
+    if os.getenv("FORCE_COLOR", "").strip():
+        return True
+    if os.getenv("NO_COLOR", "").strip():
+        return False
+    if os.getenv("TERM", "").lower() == "dumb":
+        return False
+    if not (sys.stdout.isatty() and sys.stderr.isatty()):
+        return False
+    return True
+
+
+_COLOR_ENABLED: Optional[bool] = None
+
+
 def _color(text: str, code: Any) -> str:
+    """Wrap text in ANSI color codes when color is enabled."""
+    global _COLOR_ENABLED
+    if _COLOR_ENABLED is None:
+        _COLOR_ENABLED = _supports_color()
+    if not _COLOR_ENABLED:
+        return text
     return f"\033[{code}m{text}\033[0m"
 
 
@@ -263,8 +288,29 @@ def _visible_width(text: str) -> int:
     return len(re.sub(r"\x1b\[[0-9;]*m", "", text))
 
 
+def _truncate_visible(text: str, width: int, suffix: str = "...") -> str:
+    """Truncate text so visible width <= width, preserving ANSI codes."""
+    if _visible_width(text) <= width:
+        return text
+    suffix_width = _visible_width(suffix)
+    avail = max(0, width - suffix_width)
+    import re
+    # Strip ANSI, truncate, then re-apply the leading ANSI codes from original
+    plain = re.sub(r"\x1b\[[0-9;]*m", "", text)
+    # Find leading ANSI codes
+    leading_codes = ""
+    match = re.match(r"(\x1b\[[0-9;]*m)+", text)
+    if match:
+        leading_codes = match.group(0)
+    truncated = plain[:avail]
+    return f"{leading_codes}{truncated}{suffix}\033[0m"
+
+
 def _pad_center(text: str, width: int) -> str:
     vis = _visible_width(text)
+    if vis > width:
+        text = _truncate_visible(text, width)
+        vis = _visible_width(text)
     pad = width - vis
     left = pad // 2
     right = pad - left
@@ -273,8 +319,73 @@ def _pad_center(text: str, width: int) -> str:
 
 def _pad_left(text: str, width: int) -> str:
     vis = _visible_width(text)
+    if vis > width:
+        text = _truncate_visible(text, width)
+        vis = _visible_width(text)
     pad = width - vis
     return text + " " * pad
+
+
+def _format_command_lines(inner_width: int) -> List[str]:
+    """Format the slash-command list into two balanced lines inside the banner."""
+    prefix = "  Comandos:"
+    prefix_width = _visible_width(prefix)
+    commands = ["/new", "/reset", "/clear", "/skills", "/models", "/mode", "/summary", "/help", "/exit"]
+
+    # Try to split into two balanced groups
+    mid = (len(commands) + 1) // 2
+    group1 = commands[:mid]
+    group2 = commands[mid:]
+
+    line1 = prefix + " " + "  ".join(group1)
+    line2 = " " * prefix_width + " " + "  ".join(group2)
+
+    # If the first group is too wide, fall back to greedy wrapping
+    if _visible_width(line1) > inner_width:
+        lines: List[str] = []
+        current = prefix
+        current_width = prefix_width
+        indent = " " * prefix_width
+        for cmd in commands:
+            cmd_width = _visible_width(cmd)
+            if current == prefix:
+                separator = " "
+                sep_width = 1
+            else:
+                separator = "  "
+                sep_width = 2
+            if current_width + sep_width + cmd_width <= inner_width:
+                current += separator + cmd
+                current_width += sep_width + cmd_width
+            else:
+                lines.append(current)
+                current = indent + " " + cmd
+                current_width = prefix_width + 1 + cmd_width
+        if current:
+            lines.append(current)
+        return lines
+
+    if _visible_width(line2) > inner_width:
+        # Second group too long; move commands to new lines
+        lines = [line1]
+        current = " " * prefix_width
+        current_width = prefix_width
+        for cmd in group2:
+            cmd_width = _visible_width(cmd)
+            separator = "" if current == " " * prefix_width else "  "
+            sep_width = 0 if current == " " * prefix_width else 2
+            if current_width + sep_width + cmd_width <= inner_width:
+                current += separator + cmd
+                current_width += sep_width + cmd_width
+            else:
+                lines.append(current)
+                current = " " * prefix_width + cmd
+                current_width = prefix_width + cmd_width
+        if current:
+            lines.append(current)
+        return lines
+
+    return [line1, line2]
 
 
 def _print_banner(logger, metrics) -> None:
@@ -300,14 +411,16 @@ def _print_banner(logger, metrics) -> None:
         f"  {_color('Session:', 90)}  {logger.session_id[:12]}",
         f"  {_color('Uptime:', 90)}   {duration}",
         "",
-        f"  {_color('Comandos:', 90)} /new  /reset  /clear  /skills  /models  /mode  /summary  /help  /exit",
     ]
 
-    inner_width = max(60, min(_get_term_width() - 4, 120))
+    inner_width = max(50, min(_get_term_width() - 4, 80))
+    info_lines.extend(_format_command_lines(inner_width))
+
     top = _color('╔' + '═' * inner_width + '╗', 90)
     bottom = _color('╚' + '═' * inner_width + '╝', 90)
 
     def box_line(text: str = "", center: bool = False) -> str:
+        text = _truncate_visible(text, inner_width)
         if center:
             content = _pad_center(text, inner_width)
         else:
@@ -602,7 +715,11 @@ def _handle_mcp_command(text: str) -> None:
         cmd_or_url = parts[3] if len(parts) > 3 else name
         args = parts[4:] if len(parts) > 4 else []
         print(f"\n{_color('🔌 Conectando servidor MCP:', 33)} {name}...")
-        ok = mgr.add_server(name, cmd_or_url, args=args)
+        try:
+            ok = mgr.add_server(name, cmd_or_url, args=args)
+        except Exception as exc:
+            ok = False
+            print(f"{_color('❀ Detalhes técnicos:', 90)} {exc}")
         if ok:
             client = mgr.clients.get(name)
             tool_cnt = len(client.tools) if client else 0
@@ -814,6 +931,7 @@ def _handle_mode_command(text: str) -> None:
     subcmd = parts[1].lower().strip() if len(parts) > 1 else ""
 
     pm = PermissionManager()
+    _ = pm  # avoid unused variable lint; instance is used for side-effects
 
     if subcmd in ("", "menu"):
         _print_mode_menu(show_commands=True)
@@ -980,8 +1098,18 @@ def _handle_config_command(text: str) -> None:
         if subcmd == "get" and len(parts) >= 3:
             key = parts[2].strip().upper()
             value = os.getenv(key)
-            status = f"{_color('Configurado:', 32)} ***{value[-4:]}" if value else f"{_color('Não configurado', 31)}"
-            print(f"\n{_color('🔑', 33)} {key}: {status}\n")
+            if value is None:
+                print(f"\n{_color('❌', '1;31')} {key}: não configurado\n")
+            else:
+                is_secret = any(
+                    token in key
+                    for token in ("TOKEN", "KEY", "SECRET", "PASSWORD", "API_KEY", "CREDENTIAL")
+                )
+                if is_secret:
+                    status = f"{_color('Configurado:', 32)} {'*' * max(4, len(value) - 4)}{value[-4:] if len(value) > 4 else ''}"
+                else:
+                    status = f"{_color('Configurado:', 32)} {value}"
+                print(f"\n{_color('🔑', 33)} {key}: {status}\n")
         elif subcmd == "list" and len(parts) >= 3:
             provider = parts[2].strip()
             models = list_available_models(provider)
@@ -1232,9 +1360,11 @@ def _ask_file_permission_prompt(msg: str) -> Any:
 
 
 
-def main() -> None:
+def main() -> int:
     _load_env()
     parser = argparse.ArgumentParser(description="Zeus Agent Harness")
+    parser.add_argument("--version", action="version", version="%(prog)s 0.1.0")
+    parser.add_argument("--no-color", action="store_true", help="Disable ANSI colors in output")
     parser.add_argument("-q", "--query", help="Single query, non-interactive")
     parser.add_argument("--session", help="Session ID for logging")
     parser.add_argument("--summary", action="store_true", help="Print session summary after query")
@@ -1243,32 +1373,41 @@ def main() -> None:
     parser.add_argument("gateway_args", nargs=argparse.REMAINDER, help="Gateway subcommand arguments")
     args = parser.parse_args()
 
+    global _COLOR_ENABLED
+    if args.no_color:
+        _COLOR_ENABLED = False
+
     if args.command == "gateway" or args.gateway_args:
         from zeus.gateway.cli import main as gateway_main
         sys.argv = ["zeus-gateway"] + (args.gateway_args if args.command == "gateway" else args.gateway_args[1:])
         gateway_main()
-        return
+        return 0
 
     if args.command == "setup-model":
         from zeus.cli.setup_commands import setup_model
-        sys.exit(0 if setup_model() else 1)
+        return 0 if setup_model() else 1
 
     logger = get_logger(args.session)
     metrics = get_metrics(logger.session_id)
 
     if args.query:
         logger.log_turn("user", args.query)
-        if args.team:
-            team = create_default_team(session_id=logger.session_id)
-            response = team.run(args.query)
-        else:
-            response = run_agent(args.query, session_id=logger.session_id, tool_callback=_print_tool_execution)
+        try:
+            if args.team:
+                team = create_default_team(session_id=logger.session_id)
+                response = team.run(args.query)
+            else:
+                response = run_agent(args.query, session_id=logger.session_id, tool_callback=_print_tool_execution)
+        except Exception as e:
+            logger.log_turn("error", str(e))
+            print(f"\n{_color('❌ Erro:', '1;31')} {e}\n", file=sys.stderr)
+            return 1
         logger.log_turn("assistant", response)
         _print_agent_response(response)
         if args.summary:
             print("\n--- Resumo da sessão ---")
             print(run_summary(session_id=logger.session_id))
-        return
+        return 0
 
     session = PromptSession(
         history=FileHistory(".zeus_history"),
@@ -1510,7 +1649,8 @@ def main() -> None:
             logger.log_turn("error", str(e))
             print(f"\n{_color('❌ Erro:', '1;31')} {e}\n", file=sys.stderr)
 
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

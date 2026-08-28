@@ -20,9 +20,9 @@ of actually executing.
 Confirmed actions are persisted per session in memory and optionally per user in SQLite.
 """
 
+import json
 import os
 import re
-import json
 import threading
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Set
@@ -157,6 +157,10 @@ class PermissionManager:
         """Classify the risk level of a tool call (none, medium, high)."""
         if tool_name in ("run_terminal", "run_background_command"):
             command = (arguments.get("command") or "").lower()
+            stripped = command.strip()
+            if not stripped:
+                return "none"
+
             # High-risk shell patterns.
             dangerous = [
                 r"\brm\s+-rf\s+/",
@@ -177,6 +181,7 @@ class PermissionManager:
             for pattern in dangerous:
                 if re.search(pattern, command, re.IGNORECASE):
                     return "high"
+
             # Medium-risk if it mutates system/project state.
             medium = [
                 r"\b(apt|apt-get|yum|dnf|pacman|brew)\s+(install|remove|purge|autoremove|upgrade|update)",
@@ -191,10 +196,11 @@ class PermissionManager:
             for pattern in medium:
                 if re.search(pattern, command, re.IGNORECASE):
                     return "medium"
-            return "medium" if command.strip() else "none"
+
+            return "medium"
 
         if tool_name == "terminate_command":
-            return "medium"
+            return "low"
 
         if tool_name == "manage_packages":
             operation = (arguments.get("operation") or "").lower()
@@ -350,19 +356,20 @@ class PermissionManager:
 
     def _normalize_confirmation_answer(self, answer) -> Optional[str]:
         """Normalize callback answer into one of 'once', 'always', 'persist', 'deny' or None."""
-        if answer is True or answer == "y" or (isinstance(answer, str) and answer.strip().lower() in ("y", "yes", "sim")):
+        if answer is True:
             return "once"
-        if isinstance(answer, str):
-            choice = answer.strip().lower()
-            if choice in ("y", "yes", "sim"):
-                return "once"
-            if choice in ("a", "always", "sempre"):
-                return "always"
-            if choice in ("p", "persist", "persistir"):
-                return "persist"
-            if choice in ("n", "no", "nao", "não", "negar"):
-                return "deny"
         if answer is False:
+            return "deny"
+        if not isinstance(answer, str):
+            return None
+        choice = answer.strip().lower()
+        if choice in ("y", "yes", "sim", "once"):
+            return "once"
+        if choice in ("a", "always", "sempre"):
+            return "always"
+        if choice in ("p", "persist", "persistir"):
+            return "persist"
+        if choice in ("n", "no", "nao", "não", "negar", "deny"):
             return "deny"
         return None
 

@@ -2,6 +2,7 @@
 
 import argparse
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -39,10 +40,19 @@ def _env_file_path() -> Path:
 def _telegram_chat_ids_from_env() -> list[int] | None:
     raw = os.getenv("ZEUS_TELEGRAM_ALLOWED_CHAT_IDS") or os.getenv("TELEGRAM_ALLOWED_USERS") or ""
     if raw:
-        return [int(x.strip()) for x in raw.split(",") if x.strip()]
+        try:
+            return [int(x.strip()) for x in raw.split(",") if x.strip()]
+        except ValueError as exc:
+            raise RuntimeError(
+                "ZEUS_TELEGRAM_ALLOWED_CHAT_IDS/TELEGRAM_ALLOWED_USERS contém valores não numéricos. "
+                "Use uma lista de IDs separados por vírgula."
+            ) from exc
     chat_id = os.getenv("TELEGRAM_CHAT_ID")
     if chat_id:
-        return [int(chat_id.strip())]
+        try:
+            return [int(chat_id.strip())]
+        except ValueError as exc:
+            raise RuntimeError("TELEGRAM_CHAT_ID deve ser um número inteiro.") from exc
     return None
 
 
@@ -97,6 +107,10 @@ def _ask_service_mode(platform: str) -> str:
 
 def _start_service(platform: str) -> None:
     """Install and start a user-level systemd service for the gateway."""
+    if shutil.which("systemctl") is None:
+        print("systemctl não encontrado. Modo systemd só é suportado em sistemas com systemd.")
+        sys.exit(1)
+
     service_map = {
         "telegram": "zeus-telegram-gateway.service",
         "whatsapp": "zeus-whatsapp-gateway.service",
@@ -104,7 +118,8 @@ def _start_service(platform: str) -> None:
     }
     service = service_map.get(platform)
     if not service:
-        raise RuntimeError(f"Unknown platform: {platform}")
+        print(f"Plataforma desconhecida: {platform}")
+        sys.exit(1)
 
     service_path = Path.home() / ".config" / "systemd" / "user" / service
     service_path.parent.mkdir(parents=True, exist_ok=True)
@@ -145,9 +160,10 @@ WantedBy=default.target
         sys.exit(1)
 
 
-def main() -> None:
+def main() -> int:
     _load_env()
     parser = argparse.ArgumentParser(description="Zeus Gateway")
+    parser.add_argument("--version", action="version", version="%(prog)s 0.1.0")
     subparsers = parser.add_subparsers(dest="command", help="Commands")
 
     # Legacy: python -m zeus.gateway --platform telegram
@@ -182,61 +198,75 @@ def main() -> None:
 
     # Legacy path
     if args.platform and not args.command:
-        if args.platform == "telegram":
-            os.environ.setdefault("ZEUS_TELEGRAM_TOKEN", args.token or "")
-            if args.allowed_chat_ids:
-                os.environ.setdefault("ZEUS_TELEGRAM_ALLOWED_CHAT_IDS", args.allowed_chat_ids)
-            _start_telegram(args.poll_interval)
-        elif args.platform == "whatsapp":
-            if args.allowed_numbers:
-                os.environ.setdefault("ZEUS_WHATSAPP_ALLOWED_NUMBERS", args.allowed_numbers)
-            _start_whatsapp(args.poll_interval, args.whatsapp_url)
-        elif args.platform == "discord":
-            os.environ.setdefault("ZEUS_DISCORD_TOKEN", args.token or "")
-            if args.allowed_user_ids:
-                os.environ.setdefault("ZEUS_DISCORD_ALLOWED_USER_IDS", args.allowed_user_ids)
-            if args.allowed_channel_ids:
-                os.environ.setdefault("ZEUS_DISCORD_ALLOWED_CHANNEL_IDS", args.allowed_channel_ids)
-            _start_discord()
-        return
+        try:
+            if args.platform == "telegram":
+                os.environ.setdefault("ZEUS_TELEGRAM_TOKEN", args.token or "")
+                if args.allowed_chat_ids:
+                    os.environ.setdefault("ZEUS_TELEGRAM_ALLOWED_CHAT_IDS", args.allowed_chat_ids)
+                _start_telegram(args.poll_interval)
+            elif args.platform == "whatsapp":
+                if args.allowed_numbers:
+                    os.environ.setdefault("ZEUS_WHATSAPP_ALLOWED_NUMBERS", args.allowed_numbers)
+                _start_whatsapp(args.poll_interval, args.whatsapp_url)
+            elif args.platform == "discord":
+                os.environ.setdefault("ZEUS_DISCORD_TOKEN", args.token or "")
+                if args.allowed_user_ids:
+                    os.environ.setdefault("ZEUS_DISCORD_ALLOWED_USER_IDS", args.allowed_user_ids)
+                if args.allowed_channel_ids:
+                    os.environ.setdefault("ZEUS_DISCORD_ALLOWED_CHANNEL_IDS", args.allowed_channel_ids)
+                _start_discord()
+        except RuntimeError as exc:
+            print(f"Erro: {exc}")
+            return 1
+        return 0
 
     if args.command == "setup":
-        if args.platform == "telegram":
-            ok = setup_telegram(token=args.token, chat_id=args.chat_id, skip_validation=args.skip_validation)
-        elif args.platform == "whatsapp":
-            ok = setup_whatsapp(base_url=args.whatsapp_url, allowed_numbers=args.allowed_numbers)
-        elif args.platform == "discord":
-            ok = setup_discord(
-                token=args.token,
-                allowed_user_ids=args.allowed_user_ids,
-                allowed_channel_ids=args.allowed_channel_ids,
-            )
-        else:
-            parser.error("Platform required")
-        sys.exit(0 if ok else 1)
+        try:
+            if args.platform == "telegram":
+                ok = setup_telegram(token=args.token, chat_id=args.chat_id, skip_validation=args.skip_validation)
+            elif args.platform == "whatsapp":
+                ok = setup_whatsapp(base_url=args.whatsapp_url, allowed_numbers=args.allowed_numbers)
+            elif args.platform == "discord":
+                ok = setup_discord(
+                    token=args.token,
+                    allowed_user_ids=args.allowed_user_ids,
+                    allowed_channel_ids=args.allowed_channel_ids,
+                )
+            else:
+                parser.error("Platform required")
+                return 2
+        except Exception as exc:
+            print(f"Erro durante setup: {exc}")
+            return 1
+        return 0 if ok else 1
 
     if args.command == "start":
         if not ensure_configured(args.platform):
             print("Configuração cancelada.")
-            sys.exit(1)
+            return 1
         # Reload env after setup may have written new values
         _load_env()
 
         mode = args.mode or _ask_service_mode(args.platform)
         if mode == "systemd":
             _start_service(args.platform)
-            return
+            return 0
 
-        if args.platform == "telegram":
-            _start_telegram(args.poll_interval)
-        elif args.platform == "whatsapp":
-            _start_whatsapp(args.poll_interval, args.whatsapp_url)
-        elif args.platform == "discord":
-            _start_discord()
-        return
+        try:
+            if args.platform == "telegram":
+                _start_telegram(args.poll_interval)
+            elif args.platform == "whatsapp":
+                _start_whatsapp(args.poll_interval, args.whatsapp_url)
+            elif args.platform == "discord":
+                _start_discord()
+        except RuntimeError as exc:
+            print(f"Erro: {exc}")
+            return 1
+        return 0
 
     parser.print_help()
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
