@@ -5,9 +5,8 @@ but only when ZEUS_EXECUTION_PERMISSION=allow (host terminal mode) and the
 user explicitly confirms the operation.
 """
 
-import shlex
 import subprocess
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from zeus.core.registry import register_tool
 from zeus.security.permissions import PermissionManager

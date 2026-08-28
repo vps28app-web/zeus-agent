@@ -22,7 +22,6 @@ from zeus.tools.browser import (
     browser_navigate,
 )
 
-
 # Ports are allocated per-test to avoid collisions when previous Chrome processes linger.
 _PORT_LOCK = threading.Lock()
 _NEXT_PORT = 19222
@@ -80,9 +79,11 @@ def http_server():
     class _ReuseTCPServer(socketserver.TCPServer):
         allow_reuse_address = True
 
-    handler = lambda *args, **kwargs: http.server.SimpleHTTPRequestHandler(
-        *args, directory=str(server_dir), **kwargs
-    )
+    def handler(*args, **kwargs):
+        return http.server.SimpleHTTPRequestHandler(
+            *args, directory=str(server_dir), **kwargs
+        )
+
     httpd = _ReuseTCPServer(("127.0.0.1", 0), handler)
     port = httpd.server_address[1]
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
