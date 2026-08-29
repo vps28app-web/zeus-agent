@@ -184,10 +184,29 @@ def test_google_chat_loads_dotenv_and_calls_api(mock_post):
     mock_post.assert_called_once()
 
 
-def test_google_chat_missing_api_key():
+def test_google_chat_missing_api_key_falls_back_to_oauth():
     with patch.dict(os.environ, {"GOOGLE_API_KEY": "", "GEMINI_API_KEY": ""}, clear=False):
-        with pytest.raises(RuntimeError, match="GOOGLE_API_KEY or GEMINI_API_KEY not set"):
-            router.google_chat([], [], "gemini-1.5-flash")
+        with patch("zeus.core.router._get_google_auth_header", return_value="Bearer oauth-token"):
+            with patch("requests.post") as mock_post:
+                mock_post.return_value.status_code = 200
+                mock_post.return_value.json.return_value = {
+                    "candidates": [{"content": {"parts": [{"text": "oauth-ok"}]}}]
+                }
+                response = router.google_chat(
+                    [{"role": "user", "content": "hello"}], [], "gemini-1.5-flash"
+                )
+                assert response["candidates"][0]["content"]["parts"][0]["text"] == "oauth-ok"
+                mock_post.assert_called_once()
+
+
+def test_google_chat_missing_api_key_reports_oauth_failure():
+    with patch.dict(os.environ, {"GOOGLE_API_KEY": "", "GEMINI_API_KEY": ""}, clear=False):
+        with patch(
+            "zeus.core.router._get_google_auth_header",
+            side_effect=RuntimeError("OAuth failed"),
+        ):
+            with pytest.raises(RuntimeError, match="OAuth failed"):
+                router.google_chat([], [], "gemini-1.5-flash")
 
 
 @patch("requests.post")

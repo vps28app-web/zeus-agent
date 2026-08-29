@@ -227,6 +227,26 @@ def _sanitize_gemini_schema(schema: Any) -> Any:
 
 
 
+def _get_google_auth_header() -> Optional[str]:
+    """Return an Authorization header value for Google Gemini.
+
+    Prefers an API key from env. If none is set, falls back to OAuth access
+    token stored after browser authentication.
+    """
+    api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
+    if api_key:
+        return None
+    try:
+        from zeus.core.google_oauth import get_access_token
+
+        return f"Bearer {get_access_token()}"
+    except Exception as exc:
+        raise RuntimeError(
+            "GOOGLE_API_KEY or GEMINI_API_KEY not set, and OAuth failed. "
+            f"Run '/auth google' in the CLI or set GEMINI_API_KEY. Error: {exc}"
+        ) from exc
+
+
 def google_chat(
     messages: List[Dict[str, str]],
     tools: List[Dict[str, Any]],
@@ -245,8 +265,7 @@ def google_chat(
             load_dotenv(path, override=False)
 
     api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        raise RuntimeError("GOOGLE_API_KEY or GEMINI_API_KEY not set. Add GEMINI_API_KEY=your_key in .env")
+    auth_header = _get_google_auth_header()
 
     # Gemini uses contents format with roles mapped to "user" and "model".
     contents = []
@@ -278,15 +297,19 @@ def google_chat(
             fn_decls.append(fn_decl)
         payload["tools"] = [{"functionDeclarations": fn_decls}]
 
+    if auth_header:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+        headers = {"Authorization": auth_header, "Content-Type": "application/json"}
+    else:
+        url = (
+            f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+            f"?key={api_key}"
+        )
+        headers = {"Content-Type": "application/json"}
 
-
-    url = (
-        f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-        f"?key={api_key}"
-    )
     response = requests.post(
         url,
-        headers={"Content-Type": "application/json"},
+        headers=headers,
         json=payload,
         timeout=120,
     )

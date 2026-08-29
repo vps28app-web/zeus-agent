@@ -26,6 +26,7 @@ class ZeusCommandCompleter(Completer):
         "/clear": "Limpa a tela",
         "/summary": "Mostra resumo da sessão",
         "/skills": "Seleciona um skill set/persona para filtrar ferramentas",
+        "/auth": "Autentica com Google (Gemini via browser) ou revoga credenciais",
         "/mcp": "Gerencia servidores Model Context Protocol (MCP)",
         "/config": "Gerencia configurações do Zeus",
         "/learn": "Aprendizados passados: /learn list, /learn search <query>, /learn add <p> | <s>",
@@ -619,6 +620,7 @@ def _print_command_menu() -> None:
         ("/clear", "Limpa a tela"),
         ("/summary", "Mostra resumo da sessão"),
         ("/skills", "Seleciona um skill set/persona para filtrar ferramentas"),
+        ("/auth", "Autentica Google Gemini via browser"),
         ("/mcp", "Gerencia servidores Model Context Protocol (MCP)"),
         ("/config", "Gerencia configurações do Zeus (get/set/list)"),
         ("/learn", "Aprendizados passados (list/search/add/stats/forget)"),
@@ -1141,6 +1143,39 @@ def _handle_config_command(text: str) -> None:
         _print_config_menu(get_zeus_config())
 
 
+def _handle_auth_command(text: str) -> None:
+    """Handle /auth subcommands for Google OAuth."""
+    from zeus.core.google_oauth import (
+        has_valid_credentials,
+        revoke_credentials,
+        start_device_flow,
+    )
+
+    parts = text.split()
+    subcmd = parts[1].lower() if len(parts) > 1 else "google"
+
+    if subcmd == "google":
+        print(f"\n{_color('🌐 Iniciando login do Google no navegador...', 33)}\n")
+        try:
+            credentials = start_device_flow()
+            masked = credentials['access_token'][-8:] if len(credentials['access_token']) > 8 else ""
+            print(f"\n{_color('✅ Autenticado com Google:', 32)} token ...{masked}")
+            print(f"{_color('Provider Gemini pronto para uso via OAuth.', 90)}\n")
+        except Exception as e:
+            print(f"\n{_color('❌ Erro na autenticação Google:', '1;31')} {e}\n", file=sys.stderr)
+    elif subcmd in ("revoke", "logout", "clear"):
+        revoke_credentials()
+        print(f"\n{_color('🗑️  Credenciais Google revogadas.', 33)}\n")
+    elif subcmd in ("status", "check"):
+        if has_valid_credentials():
+            print(f"\n{_color('✅ Credenciais Google OAuth ativas.', 32)}\n")
+        else:
+            print(f"\n{_color('⚠️  Credenciais Google OAuth não encontradas ou expiradas.', 33)}")
+            print(f"{_color('Use:', 90)} /auth google\n")
+    else:
+        print(f"\n{_color('❌ Uso:', '1;31')} /auth google | /auth status | /auth revoke\n")
+
+
 
 def _print_plan(plan: Dict[str, Any]) -> None:
     """Print a structured plan card."""
@@ -1484,6 +1519,10 @@ def main() -> int:
 
         if text == "/mcp" or text.startswith("/mcp "):
             _handle_mcp_command(text)
+            continue
+
+        if text == "/auth" or text.startswith("/auth "):
+            _handle_auth_command(text)
             continue
 
         if text == "/config" or text.startswith("/config "):

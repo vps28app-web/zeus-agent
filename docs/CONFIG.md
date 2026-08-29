@@ -21,6 +21,37 @@ No modo interativo:
 
 Alterações em `ZEUS_PROVIDER` ou `ZEUS_MODEL` são aplicadas em tempo real na sessão ativa.
 
+## Autenticação Google Gemini via browser (OAuth)
+
+Em vez da chave cara do Google AI Studio, você pode autenticar pelo navegador usando OAuth 2.0:
+
+1. Vá em https://console.cloud.google.com/apis/credentials
+2. Crie credenciais **OAuth 2.0 Client ID** do tipo **TVs and Limited Input devices**
+3. Ative a **Generative Language API** no projeto
+4. Adicione no `~/.zeus/.env`:
+
+```bash
+GOOGLE_OAUTH_CLIENT_ID=SEU_CLIENT_ID.apps.googleusercontent.com
+GOOGLE_OAUTH_CLIENT_SECRET=SEU_CLIENT_SECRET
+```
+
+5. No CLI do Zeus, execute:
+
+```
+/auth google
+```
+
+Isso abre o navegador, pede para você colar um código, e salva o token em `~/.zeus/google_oauth_credentials.json`.
+
+Comandos úteis:
+
+```
+/auth status   # verifica se o token está ativo
+/auth revoke   # remove as credenciais salvas
+```
+
+Quando `GEMINI_API_KEY`/`GOOGLE_API_KEY` não estiverem definidas, o provider `google` usa automaticamente o token OAuth.
+
 ## Variáveis suportadas
 
 | Variável | Descrição |
@@ -31,7 +62,9 @@ Alterações em `ZEUS_PROVIDER` ou `ZEUS_MODEL` são aplicadas em tempo real na 
 | `OPENROUTER_API_KEY` | Chave do OpenRouter |
 | `OPENAI_API_KEY` | Chave da OpenAI |
 | `ANTHROPIC_API_KEY` | Chave da Anthropic |
-| `GEMINI_API_KEY` / `GOOGLE_API_KEY` | Chave do Google Gemini (aliases sincronizados) |
+| `GEMINI_API_KEY` / `GOOGLE_API_KEY` | Chave do Google AI Studio (aliases sincronizados). Opcional se usar OAuth abaixo. |
+| `GOOGLE_OAUTH_CLIENT_ID` | Client ID OAuth para autenticação browser do Gemini |
+| `GOOGLE_OAUTH_CLIENT_SECRET` | Client secret OAuth para autenticação browser do Gemini |
 | `DEEPSEEK_API_KEY` | Chave do DeepSeek |
 | `MISTRAL_API_KEY` | Chave do Mistral |
 | `ZEUS_SANDBOX_URL` | URL do sandbox Go (padrão: `http://127.0.0.1:9876`) |
