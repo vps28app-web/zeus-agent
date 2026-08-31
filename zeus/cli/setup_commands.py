@@ -34,12 +34,16 @@ MODEL_PRESETS = {
         ("claude-opus-4-20250514", "Claude Opus 4"),
         ("claude-haiku-3-5-20241022", "Claude Haiku 3.5"),
     ],
-    "google": [
-        ("gemini-3.6-flash", "Gemini 3.6 Flash (Recomendado)"),
-        ("gemini-flash-latest", "Gemini Flash Latest"),
-        ("gemini-3.5-flash", "Gemini 3.5 Flash"),
+    "google_api": [
+        ("gemini-3.6-flash", "Gemini 3.6 Flash via API key"),
+        ("gemini-flash-latest", "Gemini Flash Latest via API key"),
+        ("gemini-3.5-flash", "Gemini 3.5 Flash via API key"),
     ],
-
+    "google_auth": [
+        ("gemini-3.6-flash", "Gemini 3.6 Flash via OAuth browser"),
+        ("gemini-flash-latest", "Gemini Flash Latest via OAuth browser"),
+        ("gemini-3.5-flash", "Gemini 3.5 Flash via OAuth browser"),
+    ],
     "deepseek": [
         ("deepseek-chat", "DeepSeek Chat"),
         ("deepseek-reasoner", "DeepSeek Reasoner"),
@@ -60,8 +64,8 @@ PROVIDER_ENV_VARS = {
     "openrouter": ("OPENROUTER_API_KEY",),
     "openai": ("OPENAI_API_KEY",),
     "anthropic": ("ANTHROPIC_API_KEY",),
-    "google": ("GEMINI_API_KEY",),
-
+    "google_api": ("GEMINI_API_KEY",),
+    "google_auth": ("GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET"),
     "deepseek": ("DEEPSEEK_API_KEY",),
     "mistral": ("MISTRAL_API_KEY",),
     "ollama": (),
@@ -275,20 +279,32 @@ def _print_provider_menu(providers: List[str], current_provider: str) -> None:
     print(_color("║", 34) + " " * inner_width + _color("║", 34))
 
     for i, name in enumerate(providers, 1):
-        marker = " ✓" if name == current_provider else " "
+        marker = "✓" if name == current_provider else " "
         required_vars = PROVIDER_ENV_VARS.get(name, ())
         if name == "ollama":
-            key_status = " (local)"
+            key_status = "(local)"
         elif required_vars and all(os.getenv(v) for v in required_vars):
-            key_status = " ✅"
+            key_status = "✅"
         elif required_vars:
             missing = ", ".join(v for v in required_vars if not os.getenv(v))
-            key_status = f" ⚠️ {missing}"
+            key_status = f"⚠️ {missing}"
         else:
             key_status = ""
-        line = f"{marker} {i}. {name}{key_status}"
-        line = _truncate_visible(line, inner_width - 2)
-        print(_color("║", 34) + " " + _pad_left(line, inner_width - 2) + " " + _color("║", 34))
+        left_text = f"{marker} {i}. {name}"
+        right_text = key_status
+        left_width = _visible_width(left_text)
+        right_width = _visible_width(right_text)
+        avail = inner_width - 2
+        if right_text:
+            full_line = f"{left_text} {right_text}"
+        else:
+            full_line = left_text
+        full_width = _visible_width(full_line)
+        if full_width > avail:
+            line = _truncate_visible(full_line, avail)
+        else:
+            line = full_line + " " * (avail - full_width)
+        print(_color("║", 34) + " " + line + " " + _color("║", 34))
 
     footer = " Digite nome/número, use Tab/↑↓ para navegar, Enter para confirmar"
     footer = _truncate_visible(footer, inner_width - 2)
@@ -416,6 +432,29 @@ def _setup_model() -> bool:
             value = _get_input(f"{var} (deixe em branco para pular)", secret=True)
             if value:
                 content = _upsert_env_var(content, var, value)
+
+    # For Google OAuth, trigger browser authentication if no valid token exists.
+    if provider == "google_auth":
+        try:
+            from zeus.core.google_oauth_desktop import (
+                has_valid_credentials,
+                start_authorization_flow,
+            )
+        except Exception:
+            pass
+        else:
+            if not has_valid_credentials():
+                print(f"\n{_color('Autenticação Google OAuth necessária.', '1;33')}")
+                answer = _get_input("Abrir navegador para fazer login agora? (y/n)", default="y")
+                if answer.lower() in ("y", "yes", "s", "sim"):
+                    try:
+                        start_authorization_flow()
+                        print(f"\n{_color('Autenticação concluída.', 32)}")
+                    except Exception as exc:
+                        print(f"\n{_color('Falha na autenticação:', '1;31')} {exc}")
+                        return False
+                else:
+                    print(f"{_color('Autenticação adiada. O provider google_auth precisará de /auth google.', 90)}")
 
     content = _upsert_env_var(content, "ZEUS_PROVIDER", provider)
     content = _upsert_env_var(content, "ZEUS_MODEL", model)
