@@ -33,7 +33,7 @@ GEMINI_SCOPES = [
 
 def _credential_path() -> Path:
     zeus_home = Path(os.getenv("ZEUS_HOME", os.path.expanduser("~/.zeus")))
-    return zeus_home / "google_oauth_credentials.json"
+    return zeus_home / "google_device_credentials.json"
 
 
 def _load_stored_credentials() -> Optional[Dict[str, Any]]:
