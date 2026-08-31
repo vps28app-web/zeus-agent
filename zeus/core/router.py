@@ -227,47 +227,11 @@ def _sanitize_gemini_schema(schema: Any) -> Any:
 
 
 
-def _get_google_auth_header() -> Optional[str]:
-    """Return an Authorization header value for Google Gemini.
-
-    Prefers an API key from env. If none is set, falls back to OAuth access
-    token stored after browser authentication.
-    """
-    api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
-    if api_key:
-        return None
-    try:
-        from zeus.core.google_oauth import get_access_token
-
-        return f"Bearer {get_access_token()}"
-    except Exception as exc:
-        raise RuntimeError(
-            "GOOGLE_API_KEY or GEMINI_API_KEY not set, and OAuth failed. "
-            f"Run '/auth google' in the CLI or set GEMINI_API_KEY. Error: {exc}"
-        ) from exc
-
-
-def google_chat(
+def _build_gemini_payload(
     messages: List[Dict[str, str]],
     tools: List[Dict[str, Any]],
-    model: str,
-    stream: bool = False,
-) -> Any:
-    """Google Gemini native provider via Generative Language API."""
-    from pathlib import Path
-
-    import requests
-    from dotenv import load_dotenv
-
-    zeus_home = Path(os.getenv("ZEUS_HOME", os.path.expanduser("~/.zeus")))
-    for path in [zeus_home / ".env", Path.cwd() / ".env"]:
-        if path.exists():
-            load_dotenv(path, override=False)
-
-    api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
-    auth_header = _get_google_auth_header()
-
-    # Gemini uses contents format with roles mapped to "user" and "model".
+) -> Dict[str, Any]:
+    """Build the Gemini generateContent request payload."""
     contents = []
     system_parts = []
     for m in messages:
@@ -296,23 +260,29 @@ def google_chat(
                 fn_decl["parameters"] = _sanitize_gemini_schema(params)
             fn_decls.append(fn_decl)
         payload["tools"] = [{"functionDeclarations": fn_decls}]
+    return payload
 
+
+def _send_gemini_request(
+    model: str,
+    payload: Dict[str, Any],
+    api_key: Optional[str] = None,
+    auth_header: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Send a request to the Gemini Generative Language API."""
+    import requests
+
+    base_url = "https://generativelanguage.googleapis.com/v1beta/models"
+    url = f"{base_url}/{model}:generateContent"
     if auth_header:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
         headers = {"Authorization": auth_header, "Content-Type": "application/json"}
-    else:
-        url = (
-            f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-            f"?key={api_key}"
-        )
+    elif api_key:
+        url = f"{url}?key={api_key}"
         headers = {"Content-Type": "application/json"}
+    else:
+        raise RuntimeError("No API key or OAuth authorization available for Google Gemini.")
 
-    response = requests.post(
-        url,
-        headers=headers,
-        json=payload,
-        timeout=120,
-    )
+    response = requests.post(url, headers=headers, json=payload, timeout=120)
     if response.status_code != 200:
         try:
             err_data = response.json()
@@ -321,6 +291,71 @@ def google_chat(
             err_msg = response.text
         raise RuntimeError(f"Google Gemini API Error ({response.status_code}): {err_msg}")
     return response.json()
+
+
+def google_api_chat(
+    messages: List[Dict[str, str]],
+    tools: List[Dict[str, Any]],
+    model: str,
+    stream: bool = False,
+) -> Any:
+    """Google Gemini via API key (GOOGLE_API_KEY or GEMINI_API_KEY)."""
+    from pathlib import Path
+
+    from dotenv import load_dotenv
+
+    zeus_home = Path(os.getenv("ZEUS_HOME", os.path.expanduser("~/.zeus")))
+    for path in [zeus_home / ".env", Path.cwd() / ".env"]:
+        if path.exists():
+            load_dotenv(path, override=False)
+
+    api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        raise RuntimeError(
+            "GEMINI_API_KEY ou GOOGLE_API_KEY nao configurada. "
+            "Use o provider 'google_auth' para autenticacao via navegador."
+        )
+
+    payload = _build_gemini_payload(messages, tools)
+    return _send_gemini_request(model, payload, api_key=api_key)
+
+
+def google_auth_chat(
+    messages: List[Dict[str, str]],
+    tools: List[Dict[str, Any]],
+    model: str,
+    stream: bool = False,
+) -> Any:
+    """Google Gemini via OAuth 2.0 browser authentication."""
+    from pathlib import Path
+
+    from dotenv import load_dotenv
+
+    zeus_home = Path(os.getenv("ZEUS_HOME", os.path.expanduser("~/.zeus")))
+    for path in [zeus_home / ".env", Path.cwd() / ".env"]:
+        if path.exists():
+            load_dotenv(path, override=False)
+
+    try:
+        from zeus.core.google_oauth_desktop import get_access_token
+    except Exception as exc:  # pragma: no cover - import guard
+        raise RuntimeError(f"Falha ao carregar modulo OAuth: {exc}") from exc
+
+    access_token = get_access_token()
+    if not access_token:
+        raise RuntimeError(
+            "Token OAuth do Google nao disponivel. Execute '/auth google' no CLI."
+        )
+
+    payload = _build_gemini_payload(messages, tools)
+    try:
+        return _send_gemini_request(model, payload, auth_header=f"Bearer {access_token}")
+    except RuntimeError as exc:
+        err_msg = str(exc)
+        if "401" in err_msg:
+            access_token = get_access_token(force_new=True)
+            return _send_gemini_request(model, payload, auth_header=f"Bearer {access_token}")
+        raise
 
 
 
@@ -398,7 +433,9 @@ PROVIDERS = {
     "opencode_go": opencode_go_chat,
     "openai": openai_chat,
     "anthropic": anthropic_chat,
-    "google": google_chat,
+    "google": google_api_chat,
+    "google_api": google_api_chat,
+    "google_auth": google_auth_chat,
     "deepseek": deepseek_chat,
     "mistral": mistral_chat,
 }
@@ -429,6 +466,8 @@ def chat(
                 "openai": "OPENAI_API_KEY",
                 "anthropic": "ANTHROPIC_API_KEY",
                 "google": "GEMINI_API_KEY / GOOGLE_API_KEY",
+                "google_api": "GEMINI_API_KEY / GOOGLE_API_KEY",
+                "google_auth": "OAuth via /auth google",
                 "deepseek": "DEEPSEEK_API_KEY",
                 "mistral": "MISTRAL_API_KEY",
             }.get(provider, f"chave de API do provider '{provider}'")
@@ -501,7 +540,7 @@ def _normalize_response(response: Dict[str, Any], provider: str) -> Dict[str, An
             }
         return res
 
-    if provider == "google":
+    if provider == "google" or provider.startswith("google_"):
         candidates = response.get("candidates", [])
         if not candidates:
             return {"choices": [{"message": {"role": "assistant", "content": None}}]}
