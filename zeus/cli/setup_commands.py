@@ -433,28 +433,18 @@ def _setup_model() -> bool:
             if value:
                 content = _upsert_env_var(content, var, value)
 
-    # For Google OAuth, trigger browser authentication if no valid token exists.
+    # For Google OAuth, ensure a valid access token (refresh silently or open browser).
     if provider == "google_auth":
         try:
-            from zeus.core.google_oauth_desktop import (
-                has_valid_credentials,
-                start_authorization_flow,
-            )
+            from zeus.core.google_oauth_desktop import get_access_token
         except Exception:
             pass
         else:
-            if not has_valid_credentials():
-                print(f"\n{_color('Autenticação Google OAuth necessária.', '1;33')}")
-                answer = _get_input("Abrir navegador para fazer login agora? (y/n)", default="y")
-                if answer.lower() in ("y", "yes", "s", "sim"):
-                    try:
-                        start_authorization_flow()
-                        print(f"\n{_color('Autenticação concluída.', 32)}")
-                    except Exception as exc:
-                        print(f"\n{_color('Falha na autenticação:', '1;31')} {exc}")
-                        return False
-                else:
-                    print(f"{_color('Autenticação adiada. O provider google_auth precisará de /auth google.', 90)}")
+            try:
+                get_access_token()
+            except Exception as exc:
+                print(f"\n{_color('Falha na autenticação Google OAuth:', '1;31')} {exc}")
+                return False
 
     content = _upsert_env_var(content, "ZEUS_PROVIDER", provider)
     content = _upsert_env_var(content, "ZEUS_MODEL", model)
