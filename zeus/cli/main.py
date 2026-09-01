@@ -26,7 +26,7 @@ class ZeusCommandCompleter(Completer):
         "/clear": "Limpa a tela",
         "/summary": "Mostra resumo da sessão",
         "/skills": "Seleciona um skill set/persona para filtrar ferramentas",
-        "/auth": "Autentica com Google (Gemini via browser) ou revoga credenciais",
+        "/auth": "Autentica Google (google_auth) via browser ou revoga credenciais",
         "/mcp": "Gerencia servidores Model Context Protocol (MCP)",
         "/config": "Gerencia configurações do Zeus",
         "/learn": "Aprendizados passados: /learn list, /learn search <query>, /learn add <p> | <s>",
@@ -252,6 +252,30 @@ def _format_tokens(count: int) -> str:
     else:
         val = count / 1_000_000_000.0
         return f"{val:.1f}b" if val < 10 else f"{int(val)}b"
+
+
+def _context_bar(input_tokens: int, width: int = 12) -> str:
+    """Render an ASCII progress bar showing context usage percentage.
+
+    Uses ZEUS_MAX_CONTEXT_TOKENS (default 8000) as the denominator and the
+    accumulated input tokens as the numerator. Colors shift from green to
+    yellow to red as usage grows.
+    """
+    max_tokens = int(os.getenv("ZEUS_MAX_CONTEXT_TOKENS", "8000"))
+    if max_tokens <= 0:
+        max_tokens = 8000
+    ratio = min(input_tokens / max_tokens, 1.0)
+    percent = int(ratio * 100)
+    filled = int(ratio * width)
+    empty = width - filled
+    bar_body = "█" * filled + "░" * empty
+    if percent < 60:
+        color = "1;32"
+    elif percent < 85:
+        color = "1;33"
+    else:
+        color = "1;31"
+    return _color(f"{bar_body} {percent}%", color)
 
 
 def _supports_color() -> bool:
@@ -620,7 +644,7 @@ def _print_command_menu() -> None:
         ("/clear", "Limpa a tela"),
         ("/summary", "Mostra resumo da sessão"),
         ("/skills", "Seleciona um skill set/persona para filtrar ferramentas"),
-        ("/auth", "Autentica Google Gemini via browser"),
+        ("/auth", "Autentica Google Gemini via browser (provider google_auth)"),
         ("/mcp", "Gerencia servidores Model Context Protocol (MCP)"),
         ("/config", "Gerencia configurações do Zeus (get/set/list)"),
         ("/learn", "Aprendizados passados (list/search/add/stats/forget)"),
@@ -1144,25 +1168,34 @@ def _handle_config_command(text: str) -> None:
 
 
 def _handle_auth_command(text: str) -> None:
-    """Handle /auth subcommands for Google OAuth."""
-    from zeus.core.google_oauth import (
+    """Handle /auth subcommands for Google OAuth (authorization code flow)."""
+    from zeus.core.google_oauth_desktop import (
         has_valid_credentials,
         revoke_credentials,
-        start_device_flow,
+        start_authorization_flow,
     )
 
     parts = text.split()
     subcmd = parts[1].lower() if len(parts) > 1 else "google"
 
     if subcmd == "google":
-        print(f"\n{_color('🌐 Iniciando login do Google no navegador...', 33)}\n")
+        provider = os.getenv("ZEUS_PROVIDER", "")
+        if provider != "google_auth":
+            aviso = "\n" + _color("Aviso:", "1;33")
+            print(
+                f"{aviso} ZEUS_PROVIDER='{provider}'. "
+                f"Para usar OAuth defina: {_color('/config set ZEUS_PROVIDER google_auth', 36)}\n"
+            )
+        print(f"\n{_color('Iniciando login do Google no navegador...', 33)}\n")
         try:
-            credentials = start_device_flow()
+            credentials = start_authorization_flow()
             masked = credentials['access_token'][-8:] if len(credentials['access_token']) > 8 else ""
-            print(f"\n{_color('✅ Autenticado com Google:', 32)} token ...{masked}")
-            print(f"{_color('Provider Gemini pronto para uso via OAuth.', 90)}\n")
+            ok = _color("Autenticado com Google:", "1;32")
+            print(f"\n{ok} token ...{masked}")
+            print(f"{_color('Provider google_auth pronto para uso via OAuth.', 90)}\n")
         except Exception as e:
-            print(f"\n{_color('❌ Erro na autenticação Google:', '1;31')} {e}\n", file=sys.stderr)
+            erro = _color("Erro na autenticacao Google:", "1;31")
+            print(f"\n{erro} {e}\n", file=sys.stderr)
     elif subcmd in ("revoke", "logout", "clear"):
         revoke_credentials()
         print(f"\n{_color('🗑️  Credenciais Google revogadas.', 33)}\n")
@@ -1324,7 +1357,7 @@ def _print_tool_result(name: Optional[str], args: Any, result: Dict[str, Any]) -
         return
 
 
-def _print_prompt_header(logger, metrics, active_skill: Optional[set] = None) -> None:
+def _print_prompt_header(logger, metrics) -> None:
     term_width = _get_term_width()
     provider = os.getenv("ZEUS_PROVIDER", "openrouter")
     model = os.getenv("ZEUS_MODEL", "unknown")
@@ -1332,8 +1365,7 @@ def _print_prompt_header(logger, metrics, active_skill: Optional[set] = None) ->
     in_tokens = _format_tokens(snap.get("llm_input_tokens", 0))
     out_tokens = _format_tokens(snap.get("llm_output_tokens", 0))
     duration = _format_duration(time.time() - snap.get("started_at", time.time()))
-    session_short = logger.session_id[:8]
-    skill_label = _current_skill_label(active_skill)
+    context_bar = _context_bar(snap.get("llm_input_tokens", 0))
 
     from zeus.mcp.manager import MCPManager
     mcp_mgr = MCPManager.get_instance()
@@ -1342,7 +1374,7 @@ def _print_prompt_header(logger, metrics, active_skill: Optional[set] = None) ->
     llm_conn = f"🌐 API:{provider}"
     tools_conn = f"🔌 MCP:{','.join(connected)}" if connected else "⚡ Tools:Native"
 
-    title = f" 👤 VOCÊ | {model} ({llm_conn}) | {tools_conn} | in:{in_tokens} out:{out_tokens} | {duration} | {session_short} | {skill_label} "
+    title = f" 👤 VOCÊ | {model} ({llm_conn}) | {tools_conn} | in:{in_tokens} out:{out_tokens} | {duration} | {context_bar} "
     remaining = max(5, term_width - len(title) - 6)
 
     top = _color("╭──", 33) + _color(title, "1;33") + _color("─" * remaining, 33)
@@ -1473,7 +1505,7 @@ def main() -> int:
 
     while True:
 
-        _print_prompt_header(logger, get_metrics(logger.session_id), active_skill)
+        _print_prompt_header(logger, get_metrics(logger.session_id))
         prompt_arrow = ANSI(_color("│ ❯ ", "1;33"))
         try:
             user_input = session.prompt(prompt_arrow)

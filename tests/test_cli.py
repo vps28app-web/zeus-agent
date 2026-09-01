@@ -49,6 +49,33 @@ def test_format_tokens():
     assert _format_tokens(2500000000) == "2.5b"
 
 
+def test_context_bar_colors_and_clamping(monkeypatch):
+    from zeus.cli.main import _context_bar
+
+    monkeypatch.delenv("ZEUS_MAX_CONTEXT_TOKENS", raising=False)
+    low = _context_bar(2000, width=10)
+    assert "25%" in low
+    mid = _context_bar(5200, width=10)
+    assert "65%" in mid
+    high = _context_bar(8500, width=10)
+    assert "100%" in high
+    assert "106%" not in high
+
+    monkeypatch.setenv("ZEUS_MAX_CONTEXT_TOKENS", "4000")
+    custom = _context_bar(2000, width=10)
+    assert "50%" in custom
+
+
+def test_context_bar_respects_color_off(monkeypatch):
+    from zeus.cli.main import _context_bar
+
+    monkeypatch.setenv("NO_COLOR", "1")
+    monkeypatch.setattr("zeus.cli.main._COLOR_ENABLED", None, raising=False)
+    bar = _context_bar(2000, width=10)
+    assert "\033[" not in bar
+    assert "25%" in bar
+
+
 def test_format_markdown_for_cli():
     from zeus.cli.main import _format_markdown_for_cli
     md = "# Title\n\n## Subtitle\n- **Item 1**: `code` text\n```python\nprint('hello')\n```"
