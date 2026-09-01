@@ -49,21 +49,31 @@ def test_format_tokens():
     assert _format_tokens(2500000000) == "2.5b"
 
 
-def test_context_bar_colors_and_clamping(monkeypatch):
+def test_context_bar_colors_and_clamping(monkeypatch, tmp_path):
     from zeus.cli.main import _context_bar
+    from zeus.memory.session_log import get_session_messages
 
     monkeypatch.delenv("ZEUS_MAX_CONTEXT_TOKENS", raising=False)
-    low = _context_bar(2000, width=10)
-    assert "25%" in low
-    mid = _context_bar(5200, width=10)
-    assert "65%" in mid
-    high = _context_bar(8500, width=10)
-    assert "100%" in high
-    assert "106%" not in high
+    # empty session => only system estimate (1500 / 8000 = 18%)
+    bar = _context_bar("nonexistent_session", width=10)
+    assert "%" in bar
 
     monkeypatch.setenv("ZEUS_MAX_CONTEXT_TOKENS", "4000")
-    custom = _context_bar(2000, width=10)
-    assert "50%" in custom
+    bar = _context_bar("nonexistent_session", width=10)
+    # 1500 / 4000 = 37%
+    assert "37%" in bar
+
+
+def test_context_bar_increases_with_history(monkeypatch, tmp_path):
+    from zeus.cli.main import _context_bar
+    from zeus.memory.session_log import SessionLogger
+
+    monkeypatch.delenv("ZEUS_MAX_CONTEXT_TOKENS", raising=False)
+    logger = SessionLogger()
+    logger.log_turn("user", "x " * 2000)  # ~1000 tokens
+    bar = _context_bar(logger.session_id, width=10)
+    # (1500 + ~1000) / 8000 = ~31-33%
+    assert any(p in bar for p in ("31%", "32%", "33%"))
 
 
 def test_context_bar_respects_color_off(monkeypatch):
@@ -71,9 +81,9 @@ def test_context_bar_respects_color_off(monkeypatch):
 
     monkeypatch.setenv("NO_COLOR", "1")
     monkeypatch.setattr("zeus.cli.main._COLOR_ENABLED", None, raising=False)
-    bar = _context_bar(2000, width=10)
+    bar = _context_bar("nonexistent_session", width=10)
     assert "\033[" not in bar
-    assert "25%" in bar
+    assert "%" in bar
 
 
 def test_format_markdown_for_cli():

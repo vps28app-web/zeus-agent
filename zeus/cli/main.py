@@ -254,17 +254,31 @@ def _format_tokens(count: int) -> str:
         return f"{val:.1f}b" if val < 10 else f"{int(val)}b"
 
 
-def _context_bar(input_tokens: int, width: int = 12) -> str:
-    """Render an ASCII progress bar showing context usage percentage.
+def _context_bar(session_id: str, width: int = 12) -> str:
+    """Render an ASCII progress bar showing current context usage percentage.
 
-    Uses ZEUS_MAX_CONTEXT_TOKENS (default 8000) as the denominator and the
-    accumulated input tokens as the numerator. Colors shift from green to
-    yellow to red as usage grows.
+    Estimates context size from session history plus system prompt, using
+    ZEUS_MAX_CONTEXT_TOKENS (default 8000) as the limit. Colors shift from
+    green to yellow to red as usage grows.
     """
+    from zeus.memory.context import estimate_tokens
+
     max_tokens = int(os.getenv("ZEUS_MAX_CONTEXT_TOKENS", "8000"))
     if max_tokens <= 0:
         max_tokens = 8000
-    ratio = min(input_tokens / max_tokens, 1.0)
+
+    try:
+        from zeus.memory.session_log import get_session_messages
+        messages = get_session_messages(session_id, limit=100)
+    except Exception:
+        messages = []
+
+    # rough system prompt estimate; actual prompt is built in agent.py
+    system_estimate = 1500
+    history_tokens = sum(estimate_tokens(m.get("content", "")) for m in messages)
+    total_tokens = system_estimate + history_tokens
+
+    ratio = min(total_tokens / max_tokens, 1.0)
     percent = int(ratio * 100)
     filled = int(ratio * width)
     empty = width - filled
@@ -1365,7 +1379,7 @@ def _print_prompt_header(logger, metrics) -> None:
     in_tokens = _format_tokens(snap.get("llm_input_tokens", 0))
     out_tokens = _format_tokens(snap.get("llm_output_tokens", 0))
     duration = _format_duration(time.time() - snap.get("started_at", time.time()))
-    context_bar = _context_bar(snap.get("llm_input_tokens", 0))
+    context_bar = _context_bar(logger.session_id)
 
     from zeus.mcp.manager import MCPManager
     mcp_mgr = MCPManager.get_instance()
