@@ -47,11 +47,28 @@ def test_query_database_with_params(patch_db_path):
 def test_query_database_honors_limit(patch_db_path):
     conn = get_connection()
     try:
-        conn.execute("CREATE TABLE IF NOT EXISTS numbers (value INTEGER)")
-        conn.executemany("INSERT INTO numbers (value) VALUES (?)", [(i,) for i in range(1, 11)])
+        conn.execute("DELETE FROM memories")
+        conn.executemany("INSERT INTO memories (key, note) VALUES (?, ?)", [(f"k{i}", f"note{i}") for i in range(1, 11)])
         conn.commit()
     finally:
         conn.close()
 
-    res = query_database("SELECT value FROM numbers ORDER BY value", limit=3)
+    res = query_database("SELECT note FROM memories ORDER BY note", limit=3)
     assert res["row_count"] == 3
+
+
+def test_query_database_blocks_sensitive_tables(patch_db_path):
+    res = query_database("SELECT * FROM audit_logs")
+    assert "error" in res
+    assert "audit_logs" in res["error"]
+
+
+def test_query_database_blocks_unknown_tables(patch_db_path):
+    res = query_database("SELECT * FROM sqlite_master")
+    assert "error" in res
+    assert "not in the query_database allowlist" in res["error"]
+
+
+def test_query_database_allows_allowed_tables(patch_db_path):
+    res = query_database("SELECT * FROM sessions")
+    assert "error" not in res

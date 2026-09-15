@@ -78,3 +78,36 @@ def test_unknown_notification_returns_none():
     server = MCPServer()
     resp = server.handle_request({"jsonrpc": "2.0", "method": "unknown/notification"})
     assert resp is None
+
+
+def test_auth_token_blocks_unauthenticated_calls(monkeypatch):
+    monkeypatch.setenv("ZEUS_MCP_AUTH_TOKEN", "secret-token")
+    server = MCPServer()
+    resp = server.handle_request({"jsonrpc": "2.0", "id": 7, "method": "tools/list"})
+    assert resp is not None
+    assert resp["id"] == 7
+    assert "error" in resp
+    assert resp["error"]["code"] == -32001
+
+
+def test_auth_token_allows_authenticated_calls(monkeypatch):
+    monkeypatch.setenv("ZEUS_MCP_AUTH_TOKEN", "secret-token")
+    server = MCPServer()
+    resp = server.handle_request({
+        "jsonrpc": "2.0",
+        "id": 8,
+        "method": "tools/list",
+        "meta": {"auth_token": "secret-token"},
+    })
+    assert resp is not None
+    assert resp["id"] == 8
+    assert "tools" in resp["result"]
+
+
+def test_initialize_is_public_even_with_auth(monkeypatch):
+    monkeypatch.setenv("ZEUS_MCP_AUTH_TOKEN", "secret-token")
+    server = MCPServer()
+    resp = server.handle_request({"jsonrpc": "2.0", "id": 9, "method": "initialize"})
+    assert resp is not None
+    assert resp["id"] == 9
+    assert "result" in resp

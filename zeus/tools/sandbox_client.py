@@ -50,11 +50,19 @@ def current_user_session() -> tuple[Optional[str], Optional[str]]:
 DEFAULT_URL = "http://127.0.0.1:9876"
 
 
+def _sandbox_headers() -> Dict[str, str]:
+    """Return Authorization header if ZEUS_SANDBOX_AUTH_TOKEN is configured."""
+    token = os.getenv("ZEUS_SANDBOX_AUTH_TOKEN")
+    if token:
+        return {"Authorization": f"Bearer {token}"}
+    return {}
+
+
 def is_sandbox_available(url: Optional[str] = None) -> bool:
     """Return True if the sandbox server responds to health check."""
     base_url = (url or os.getenv("ZEUS_SANDBOX_URL", DEFAULT_URL)).rstrip("/")
     try:
-        response = requests.get(f"{base_url}/health", timeout=2)
+        response = requests.get(f"{base_url}/health", timeout=2, headers=_sandbox_headers())
         return response.status_code == 200
     except requests.RequestException:
         return False
@@ -89,6 +97,7 @@ def run_sandboxed_command(
             f"{base_url}/run",
             json=payload,
             timeout=timeout + 5,
+            headers=_sandbox_headers(),
         )
         response.raise_for_status()
         return response.json()
@@ -103,7 +112,7 @@ def run_sandboxed_command(
 def health_check(url: Optional[str] = None) -> Dict[str, Any]:
     base_url = (url or os.getenv("ZEUS_SANDBOX_URL", DEFAULT_URL)).rstrip("/")
     try:
-        response = requests.get(f"{base_url}/health", timeout=5)
+        response = requests.get(f"{base_url}/health", timeout=5, headers=_sandbox_headers())
         response.raise_for_status()
         return response.json()
     except requests.RequestException as e:

@@ -77,6 +77,9 @@ var DefaultAllowedBinaries = []string{
 }
 
 // ValidateCommand checks whether the first binary in a shell command is allowed.
+// The caller is responsible for sanitizing the command string; this function only
+// enforces the binary allowlist because legitimate Zeus commands use shell pipes
+// and substitutions (e.g. `echo ... | base64 -d | bash`).
 func ValidateCommand(command string, allowed []string) error {
 	if len(allowed) == 0 {
 		return nil

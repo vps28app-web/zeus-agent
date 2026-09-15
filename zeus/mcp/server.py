@@ -1,6 +1,7 @@
 """MCPServer implementation to expose Zeus tools to external MCP clients over stdio."""
 
 import json
+import os
 import sys
 from typing import Any, Dict, List, Optional
 
@@ -14,12 +15,28 @@ class MCPServer:
     def __init__(self, name: str = "zeus-mcp-server", version: str = "0.1.0"):
         self.name = name
         self.version = version
+        # Optional shared secret for local MCP clients.
+        self.auth_token = os.getenv("ZEUS_MCP_AUTH_TOKEN")
+
+    def _is_authenticated(self, request_data: Dict[str, Any]) -> bool:
+        if not self.auth_token:
+            return True
+        meta = request_data.get("meta") or {}
+        token = meta.get("auth_token")
+        return token == self.auth_token
+
+    def _auth_error(self, req_id: Any) -> Dict[str, Any]:
+        return JsonRpcResponse(
+            id=req_id,
+            error={"code": -32001, "message": "Unauthorized: invalid or missing auth_token"},
+        ).to_dict()
 
     def handle_request(self, request_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         method = request_data.get("method")
         req_id = request_data.get("id")
         params = request_data.get("params", {}) or {}
 
+        # initialize is intentionally public so clients can negotiate before auth.
         if method == "initialize":
             return JsonRpcResponse(
                 id=req_id,
@@ -35,10 +52,14 @@ class MCPServer:
                 },
             ).to_dict()
 
-        elif method == "notifications/initialized":
+        # All other methods require authentication when ZEUS_MCP_AUTH_TOKEN is set.
+        if not self._is_authenticated(request_data):
+            return self._auth_error(req_id)
+
+        if method == "notifications/initialized":
             return None
 
-        elif method == "tools/list":
+        if method == "tools/list":
             tools_list: List[Dict[str, Any]] = []
             for tool in REGISTRY.list_tools():
                 tools_list.append({
@@ -51,7 +72,7 @@ class MCPServer:
                 result={"tools": tools_list},
             ).to_dict()
 
-        elif method == "tools/call":
+        if method == "tools/call":
             tool_name = params.get("name")
             arguments = params.get("arguments", {}) or {}
 
