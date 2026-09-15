@@ -5,6 +5,7 @@ but only when ZEUS_EXECUTION_PERMISSION=allow (host terminal mode) and the
 user explicitly confirms the operation.
 """
 
+import re
 import subprocess
 from typing import Any, Dict, Optional
 
@@ -89,6 +90,14 @@ def _sanitize_command(command: str) -> Optional[str]:
         return (
             f"Subcommand '{subcommand}' not allowed for {manager}. / "
             f"Subcomando '{subcommand}' não permitido para {manager}."
+        )
+
+    # Reject shell metacharacters that could chain commands or redirect.
+    dangerous_chars = re.compile(r"[;&|`$(){}<>\\\n\r]")
+    if dangerous_chars.search(command):
+        return (
+            "Shell metacharacters are not allowed in package commands / "
+            "Caracteres de shell não são permitidos em comandos de pacotes."
         )
 
     return None

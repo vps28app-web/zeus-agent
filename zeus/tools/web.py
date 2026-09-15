@@ -1,10 +1,43 @@
 """Web search and LLM-friendly content extraction tools."""
 
 import os
+import re
 import urllib.parse
 from typing import Any, Dict, List
 
 from zeus.core.registry import register_tool
+
+
+# Block URLs that target internal/private infrastructure (SSRF protection).
+BLOCKED_HOST_PATTERNS = [
+    re.compile(r"^localhost$", re.IGNORECASE),
+    re.compile(r"^127\.\d+\.\d+\.\d+$"),
+    re.compile(r"^10\.\d+\.\d+\.\d+$"),
+    re.compile(r"^172\.(1[6-9]|2[0-9]|3[0-1])\.\d+\.\d+$"),
+    re.compile(r"^192\.168\.\d+\.\d+$"),
+    re.compile(r"^169\.254\.\d+\.\d+$"),
+    re.compile(r"^0\."),
+    re.compile(r"^::1$"),
+    re.compile(r"^fc00:", re.IGNORECASE),
+    re.compile(r"^fe80:", re.IGNORECASE),
+    re.compile(r"\.local$", re.IGNORECASE),
+]
+
+
+def _is_url_allowed(url: str) -> bool:
+    """Return False for private/internal URLs to mitigate SSRF."""
+    try:
+        parsed = urllib.parse.urlparse(url)
+        hostname = parsed.hostname or ""
+        for pattern in BLOCKED_HOST_PATTERNS:
+            if pattern.match(hostname):
+                return False
+        # Block file:// and other non-http schemes
+        if parsed.scheme not in ("http", "https"):
+            return False
+        return True
+    except Exception:
+        return False
 
 
 def web_search(query: str, limit: int = 5) -> Dict[str, Any]:
@@ -75,6 +108,8 @@ def web_search(query: str, limit: int = 5) -> Dict[str, Any]:
 
 def web_extract(url: str, char_limit: int = 15000) -> Dict[str, Any]:
     """Extract readable LLM-friendly Markdown content from a URL."""
+    if not _is_url_allowed(url):
+        return {"url": url, "error": "URL blocked for security reasons (private/internal address)."}
     try:
         import requests
         from bs4 import BeautifulSoup
@@ -128,6 +163,8 @@ def web_extract(url: str, char_limit: int = 15000) -> Dict[str, Any]:
 
 def web_scrape_links(url: str, limit: int = 30) -> Dict[str, Any]:
     """Extract hyperlinked URLs and anchor text from a webpage."""
+    if not _is_url_allowed(url):
+        return {"url": url, "error": "URL blocked for security reasons (private/internal address)."}
     try:
         import requests
         from bs4 import BeautifulSoup

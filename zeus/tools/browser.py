@@ -14,8 +14,18 @@ import time
 import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 
 from zeus.core.registry import register_tool
+
+
+def _is_url_allowed(url: str) -> bool:
+    """Allow only http/https URLs; block file://, javascript:, data:, etc."""
+    try:
+        scheme = urlparse(url).scheme.lower()
+        return scheme in ("http", "https")
+    except Exception:
+        return False
 
 
 def _find_chrome() -> Optional[str]:
@@ -271,6 +281,9 @@ def _kill_chrome_tree(process: subprocess.Popen) -> None:
 
 def browser_navigate(url: str, wait_seconds: float = 2.0) -> Dict[str, Any]:
     """Navigate to a URL and return page title and simplified text."""
+    if not _is_url_allowed(url):
+        return {"url": url, "error": "URL blocked for security reasons (only http/https allowed)."}
+
     def action(client: CDPClient, url: str, wait_seconds: float):
         nav = client.navigate(url, wait_seconds=wait_seconds)
         title = client.evaluate("document.title")
@@ -286,6 +299,9 @@ def browser_navigate(url: str, wait_seconds: float = 2.0) -> Dict[str, Any]:
 
 def browser_extract(url: str, selector: Optional[str] = None, wait_seconds: float = 2.0) -> Dict[str, Any]:
     """Extract HTML or text from a page, optionally scoped by CSS selector."""
+    if not _is_url_allowed(url):
+        return {"url": url, "error": "URL blocked for security reasons (only http/https allowed)."}
+
     def action(client: CDPClient, url: str, selector: Optional[str], wait_seconds: float):
         client.navigate(url, wait_seconds=wait_seconds)
         if selector:
@@ -298,6 +314,9 @@ def browser_extract(url: str, selector: Optional[str] = None, wait_seconds: floa
 
 def browser_click(url: str, selector: str, wait_seconds: float = 2.0) -> Dict[str, Any]:
     """Click an element on a page and return simplified page text afterwards."""
+    if not _is_url_allowed(url):
+        return {"url": url, "error": "URL blocked for security reasons (only http/https allowed)."}
+
     def action(client: CDPClient, url: str, selector: str, wait_seconds: float):
         client.navigate(url, wait_seconds=wait_seconds)
         click_result = client.click(selector)
@@ -311,6 +330,9 @@ def browser_click(url: str, selector: str, wait_seconds: float = 2.0) -> Dict[st
 
 def browser_evaluate(url: str, expression: str, wait_seconds: float = 2.0) -> Dict[str, Any]:
     """Navigate to a URL and evaluate a JavaScript expression."""
+    if not _is_url_allowed(url):
+        return {"url": url, "error": "URL blocked for security reasons (only http/https allowed)."}
+
     def action(client: CDPClient, url: str, expression: str, wait_seconds: float):
         client.navigate(url, wait_seconds=wait_seconds)
         value = client.evaluate(expression)

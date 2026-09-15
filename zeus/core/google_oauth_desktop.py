@@ -89,6 +89,7 @@ class _RedirectHandler(BaseHTTPRequestHandler):
     code: Optional[str] = None
     error: Optional[str] = None
     error_description: Optional[str] = None
+    expected_state: Optional[str] = None
 
     def log_message(self, format: str, *args: Any) -> None:
         # Suppress default logging to keep CLI clean.
@@ -122,6 +123,16 @@ class _RedirectHandler(BaseHTTPRequestHandler):
         query = parse_qs(parsed.query)
 
         if "code" in query:
+            state = query.get("state", [""])[0]
+            if state != (_RedirectHandler.expected_state or ""):
+                _RedirectHandler.error = "invalid_state"
+                _RedirectHandler.error_description = "OAuth state mismatch (possible CSRF attack)."
+                self._send_landing_page(
+                    403,
+                    "Autenticação falhou",
+                    f"Erro: {_RedirectHandler.error} - {_RedirectHandler.error_description}",
+                )
+                return
             _RedirectHandler.code = query["code"][0]
             self._send_landing_page(200, "Autenticação concluída", "O Zeus recebeu o código de autorização.")
         elif "error" in query:
@@ -161,6 +172,7 @@ def start_authorization_flow(timeout: int = 300) -> Dict[str, Any]:
     _RedirectHandler.code = None
     _RedirectHandler.error = None
     _RedirectHandler.error_description = None
+    _RedirectHandler.expected_state = state
 
     server = HTTPServer(("127.0.0.1", port), _RedirectHandler)
     server_thread = Thread(target=server.serve_forever, daemon=True)

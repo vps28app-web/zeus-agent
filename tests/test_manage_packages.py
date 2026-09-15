@@ -70,3 +70,21 @@ def test_manage_packages_blocks_dangerous_subcommand():
     result = manage_packages("apt moo")
     assert "error" in result
     assert "not allowed" in result["error"]
+
+
+def test_manage_packages_rejects_shell_metacharacters():
+    result = manage_packages("pip install requests; rm -rf /")
+    assert "error" in result
+    assert "metacharacters" in result["error"].lower()
+
+
+def test_manage_packages_rejects_backtick():
+    result = manage_packages("pip install requests `whoami`")
+    assert "error" in result
+    assert "metacharacters" in result["error"].lower()
+
+
+def test_manage_packages_rejects_pipe():
+    result = manage_packages("pip install requests | bash")
+    assert "error" in result
+    assert "metacharacters" in result["error"].lower()

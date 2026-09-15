@@ -263,3 +263,15 @@ def test_browser_click_tool(http_server):
     assert "error" not in result
     assert result["clicked"] is True
     assert "done" in result["page_text"]
+
+
+def test_browser_navigate_blocks_file_url():
+    result = browser_navigate("file:///etc/passwd", wait_seconds=0.1)
+    assert "error" in result
+    assert "blocked" in result["error"].lower()
+
+
+def test_browser_extract_blocks_javascript_url():
+    result = browser_extract("javascript:alert(1)", wait_seconds=0.1)
+    assert "error" in result
+    assert "blocked" in result["error"].lower()

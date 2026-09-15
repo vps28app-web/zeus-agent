@@ -528,8 +528,16 @@ DANGEROUS_SHELL_PATTERNS = [
     re.compile(r"\bdd\s+if="),
     re.compile(r"\b:w!\s+"),
     re.compile(r"\bchmod\s+-R\s+777\s+/"),
-    re.compile(r"\bcurl\s+.*\|\s*bash", re.IGNORECASE),
-    re.compile(r"\bwget\s+.*\|\s*bash", re.IGNORECASE),
+    # Pipe to interpreter with optional whitespace
+    re.compile(r"\bcurl\b.*\|\s*(?:bash|sh|zsh|perl|python|ruby)", re.IGNORECASE),
+    re.compile(r"\bwget\b.*\|\s*(?:bash|sh|zsh|perl|python|ruby)", re.IGNORECASE),
+    re.compile(r"\bfetch\b.*\|\s*(?:bash|sh|zsh|perl|python|ruby)", re.IGNORECASE),
+    # Backticks and $() executing remote downloads
+    re.compile(r"`.*(?:curl|wget|fetch)\b.*`", re.IGNORECASE),
+    re.compile(r"\$\(.*(?:curl|wget|fetch)\b.*\)", re.IGNORECASE),
+    # Obfuscated pipes
+    re.compile(r"\b(?:curl|wget|fetch)\b.*\|\s*\$\(which\s+(?:bash|sh|zsh)\)", re.IGNORECASE),
+    re.compile(r"\b(?:curl|wget|fetch)\b.*;\s*\brm\s+-rf\s+/", re.IGNORECASE),
 ]
 
 # Global PermissionManager instance used by tools that do not inject their own.

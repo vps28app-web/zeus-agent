@@ -69,3 +69,15 @@ def test_web_scrape_links():
         assert len(res["links"]) == 2
         assert res["links"][0]["url"] == "https://example.com/page1"
         assert res["links"][1]["url"] == "https://example.com/page2"
+
+
+def test_web_extract_blocks_private_url():
+    res = web_extract("http://127.0.0.1:9876/secrets")
+    assert "error" in res
+    assert "blocked" in res["error"].lower()
+
+
+def test_web_scrape_links_blocks_private_url():
+    res = web_scrape_links("http://localhost/admin")
+    assert "error" in res
+    assert "blocked" in res["error"].lower()

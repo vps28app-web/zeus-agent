@@ -140,3 +140,47 @@ def test_get_access_token_uses_stored_token(mock_load):
     future = int(time.time()) + 3600
     mock_load.return_value = {"access_token": "valid", "expires_at": future}
     assert oauth.get_access_token() == "valid"
+
+
+def _make_redirect_handler(path: str):
+    from io import BytesIO
+
+    class FakeRequest:
+        def __init__(self, path):
+            self.path = path
+
+    handler = oauth._RedirectHandler.__new__(oauth._RedirectHandler)
+    handler.protocol_version = "HTTP/1.1"
+    handler.wfile = BytesIO()
+    handler.request = FakeRequest(path)
+    handler.path = path
+    handler.requestline = f"GET {path} HTTP/1.1"
+    handler.command = "GET"
+    handler.request_version = "HTTP/1.1"
+    handler.server_version = "BaseHTTP/0.6"
+    handler.sys_version = ""
+    return handler
+
+
+def test_redirect_handler_blocks_state_mismatch():
+    oauth._RedirectHandler.expected_state = "valid-state"
+    oauth._RedirectHandler.code = None
+    oauth._RedirectHandler.error = None
+
+    handler = _make_redirect_handler("/callback?code=abc&state=wrong-state")
+    handler.do_GET()
+    assert oauth._RedirectHandler.code is None
+    assert oauth._RedirectHandler.error == "invalid_state"
+    body = handler.wfile.getvalue().decode()
+    assert "CSRF" in body
+
+
+def test_redirect_handler_accepts_matching_state():
+    oauth._RedirectHandler.expected_state = "valid-state"
+    oauth._RedirectHandler.code = None
+    oauth._RedirectHandler.error = None
+
+    handler = _make_redirect_handler("/callback?code=abc&state=valid-state")
+    handler.do_GET()
+    assert oauth._RedirectHandler.code == "abc"
+    assert oauth._RedirectHandler.error is None

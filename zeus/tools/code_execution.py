@@ -69,6 +69,12 @@ exec(_user_code, _globals)
     if packages:
         if not _permissions.can_install_packages():
             return {"error": _permissions.denied_message("package installation")}
+        # Validate package names to prevent shell injection.
+        import re
+
+        for pkg in packages:
+            if not re.fullmatch(r"[A-Za-z0-9_\-\.\[\]>=<~!]+", pkg):
+                return {"error": f"Invalid package name: {pkg}"}
         install_packages = "pip install --quiet " + " ".join(packages) + " && "
 
     shell_command = (
