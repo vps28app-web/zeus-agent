@@ -26,22 +26,30 @@ Alterações em `ZEUS_PROVIDER` ou `ZEUS_MODEL` são aplicadas em tempo real na 
 Em vez da chave cara do Google AI Studio, você pode autenticar pelo navegador usando OAuth 2.0:
 
 1. Vá em https://console.cloud.google.com/apis/credentials
-2. Crie credenciais **OAuth 2.0 Client ID** do tipo **TVs and Limited Input devices**
-3. Ative a **Generative Language API** no projeto
-4. Adicione no `~/.zeus/.env`:
+2. Crie credenciais **OAuth 2.0 Client ID** do tipo **Desktop app**
+3. Configure a **Tela de permissão OAuth** (nome, e-mail de suporte, e-mail do desenvolvedor)
+4. Ative a **Gemini API** no projeto
+5. Adicione no `~/.zeus/.env`:
 
 ```bash
 GOOGLE_OAUTH_CLIENT_ID=SEU_CLIENT_ID.apps.googleusercontent.com
 GOOGLE_OAUTH_CLIENT_SECRET=SEU_CLIENT_SECRET
 ```
 
-5. No CLI do Zeus, execute:
+6. Defina o provider OAuth:
+
+```bash
+/config set ZEUS_PROVIDER google_auth
+/config set ZEUS_MODEL gemini-3.6-flash
+```
+
+7. No CLI do Zeus, execute:
 
 ```
 /auth google
 ```
 
-Isso abre o navegador, pede para você colar um código, e salva o token em `~/.zeus/google_oauth_credentials.json`.
+Isso abre o navegador, redireciona de volta para `http://127.0.0.1:<porta>` e salva o token em `~/.zeus/google_oauth_credentials.json`.
 
 Comandos úteis:
 
@@ -50,7 +58,7 @@ Comandos úteis:
 /auth revoke   # remove as credenciais salvas
 ```
 
-Quando `GEMINI_API_KEY`/`GOOGLE_API_KEY` não estiverem definidas, o provider `google` usa automaticamente o token OAuth.
+Para usar chave de API em vez de OAuth, defina `ZEUS_PROVIDER=google_api` e configure `GEMINI_API_KEY`.
 
 ## Variáveis suportadas
 
@@ -62,9 +70,9 @@ Quando `GEMINI_API_KEY`/`GOOGLE_API_KEY` não estiverem definidas, o provider `g
 | `OPENROUTER_API_KEY` | Chave do OpenRouter |
 | `OPENAI_API_KEY` | Chave da OpenAI |
 | `ANTHROPIC_API_KEY` | Chave da Anthropic |
-| `GEMINI_API_KEY` / `GOOGLE_API_KEY` | Chave do Google AI Studio (aliases sincronizados). Opcional se usar OAuth abaixo. |
-| `GOOGLE_OAUTH_CLIENT_ID` | Client ID OAuth para autenticação browser do Gemini |
-| `GOOGLE_OAUTH_CLIENT_SECRET` | Client secret OAuth para autenticação browser do Gemini |
+| `GEMINI_API_KEY` / `GOOGLE_API_KEY` | Chave do Google AI Studio (aliases sincronizados). Usada pelo provider `google_api`. |
+| `GOOGLE_OAUTH_CLIENT_ID` | Client ID OAuth para autenticação browser do Gemini (provider `google_auth`) |
+| `GOOGLE_OAUTH_CLIENT_SECRET` | Client secret OAuth para autenticação browser do Gemini (provider `google_auth`) |
 | `DEEPSEEK_API_KEY` | Chave do DeepSeek |
 | `MISTRAL_API_KEY` | Chave do Mistral |
 | `ZEUS_SANDBOX_URL` | URL do sandbox Go (padrão: `http://127.0.0.1:9876`) |

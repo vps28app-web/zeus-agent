@@ -107,15 +107,15 @@ class TestFetchModels:
 
     def test_fetch_models_opencode_go_success(self, monkeypatch):
         monkeypatch.setenv("OPENCODE_GO_API_KEY", "oc-test")
-        monkeypatch.setenv("OPENCODE_GO_BASE_URL", "https://api.opencode.co/v1")
+        monkeypatch.setenv("OPENCODE_GO_BASE_URL", "https://opencode.ai/zen/go/v1")
         mock_response = mock.Mock()
         mock_response.raise_for_status.return_value = None
         mock_response.json.return_value = {"data": [{"id": "kimi-k2.7-code"}, {"id": "qwen3.8-max"}]}
         with mock.patch("requests.get", return_value=mock_response) as mock_get:
             result = fetch_models("opencode_go")
         mock_get.assert_called_once_with(
-            "https://api.opencode.co/v1/models",
-            headers={"Authorization": "Bearer oc-test"},
+            "https://opencode.ai/zen/go/v1/models",
+            headers={"Authorization": "Bearer oc-test", "x-opencode-session": "zeus-session"},
             timeout=30,
         )
         assert result["models"] == ["kimi-k2.7-code", "qwen3.8-max"]

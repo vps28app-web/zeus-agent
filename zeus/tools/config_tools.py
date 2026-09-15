@@ -45,6 +45,8 @@ def get_zeus_config() -> Dict[str, Any]:
     keys_to_check = [
         "GEMINI_API_KEY",
         "GOOGLE_API_KEY",
+        "GOOGLE_OAUTH_CLIENT_ID",
+        "GOOGLE_OAUTH_CLIENT_SECRET",
         "OPENROUTER_API_KEY",
         "OPENCODE_GO_API_KEY",
         "OPENAI_API_KEY",
@@ -163,10 +165,10 @@ def fetch_models(provider: str) -> Dict[str, Any]:
             "details": MODEL_PRESETS.get(provider, []),
         }
 
-    if provider == "google":
+    if provider in ("google", "google_api"):
         api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
         if not api_key:
-            return {"error": "GEMINI_API_KEY ou GOOGLE_API_KEY n\u00e3o configurada."}
+            return {"error": "GEMINI_API_KEY ou GOOGLE_API_KEY nao configurada."}
         try:
             response = requests.get(
                 "https://generativelanguage.googleapis.com/v1beta/models",
@@ -179,6 +181,27 @@ def fetch_models(provider: str) -> Dict[str, Any]:
             return {"provider": provider, "models": models}
         except Exception as exc:
             return {"error": f"Falha ao listar modelos Google: {exc}"}
+
+    if provider == "google_auth":
+        try:
+            from zeus.core.google_oauth_desktop import get_access_token
+        except Exception as exc:
+            return {"error": f"Falha ao carregar modulo OAuth: {exc}"}
+        access_token = get_access_token()
+        if not access_token:
+            return {"error": "Token OAuth do Google nao disponivel. Execute '/auth google' no CLI."}
+        try:
+            response = requests.get(
+                "https://generativelanguage.googleapis.com/v1beta/models",
+                headers={"Authorization": f"Bearer {access_token}"},
+                timeout=30,
+            )
+            response.raise_for_status()
+            data = response.json()
+            models = sorted(m.get("name", "").replace("models/", "") for m in data.get("models", []) if m.get("name"))
+            return {"provider": provider, "models": models}
+        except Exception as exc:
+            return {"error": f"Falha ao listar modelos Google via OAuth: {exc}"}
 
     if provider == "deepseek":
         api_key = os.getenv("DEEPSEEK_API_KEY")
@@ -230,13 +253,16 @@ def fetch_models(provider: str) -> Dict[str, Any]:
 
     if provider == "opencode_go":
         api_key = os.getenv("OPENCODE_GO_API_KEY")
-        base_url = os.getenv("OPENCODE_GO_BASE_URL", "https://api.opencode.co/v1")
+        base_url = os.getenv("OPENCODE_GO_BASE_URL", "https://opencode.ai/zen/go/v1")
         if not api_key:
             return {"error": "OPENCODE_GO_API_KEY n\u00e3o configurada."}
         try:
             response = requests.get(
                 f"{base_url.rstrip('/')}/models",
-                headers={"Authorization": f"Bearer {api_key}"},
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "x-opencode-session": "zeus-session",
+                },
                 timeout=30,
             )
             response.raise_for_status()

@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Política de Privacidade — Zeus</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      margin: 0;
+      padding: 0;
+      background: #0f172a;
+      color: #e2e8f0;
+      line-height: 1.6;
+    }
+    header {
+      text-align: center;
+      padding: 3rem 1rem;
+      background: linear-gradient(135deg, #0ea5e9 0%, #6366f1 100%);
+    }
+    header h1 { margin: 0; font-size: 2rem; }
+    main {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 2rem 1rem;
+    }
+    h2 { color: #38bdf8; margin-top: 2rem; }
+    a { color: #38bdf8; }
+    footer {
+      text-align: center;
+      padding: 2rem 1rem;
+      border-top: 1px solid #1e293b;
+      color: #94a3b8;
+      font-size: 0.9rem;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Política de Privacidade</h1>
+    <p>Zeus Agent Harness</p>
+  </header>
+  <main>
+    <p><strong>Última atualização:</strong> 31 de agosto de 2026</p>
+
+    <h2>1. Informações que coletamos</h2>
+    <p>Zeus é executado localmente na máquina do usuário. O aplicativo não coleta, armazena nem transmite dados pessoais para servidores próprios. As únicas informações processadas são:</p>
+    <ul>
+      <li>Mensagens e comandos enviados pelo usuário ao agente;</li>
+      <li>Respostas geradas pelos provedores de IA escolhidos (OpenRouter, OpenCode Go, Google Gemini etc.);</li>
+      <li>Histórico de sessão e memória local, mantidos em arquivos no diretório <code>~/.zeus</code>;</li>
+      <li>Credenciais de API e tokens OAuth, armazenados localmente no arquivo <code>~/.zeus/.env</code> e <code>~/.zeus/google_oauth_credentials.json</code>.</li>
+    </ul>
+
+    <h2>2. Uso de credenciais do Google</h2>
+    <p>Ao usar o provider <code>google_auth</code>, o Zeus solicita acesso às APIs do Google Gemini através de OAuth 2.0. O token de acesso é obtido diretamente do Google e armazenado apenas na máquina do usuário. O Zeus não envia essas credenciais para terceiros.</p>
+
+    <h2>3. Provedores de IA terceirizados</h2>
+    <p>Quando você utiliza um provedor de IA (OpenRouter, OpenAI, Anthropic, Google etc.), as mensagens são enviadas diretamente aos servidores desse provedor, de acordo com os termos e políticas de privacidade de cada um. Recomendamos revisar as políticas do provedor escolhido.</p>
+
+    <h2>4. Armazenamento local</h2>
+    <p>Todos os dados sensíveis são mantidos localmente:</p>
+    <ul>
+      <li><code>~/.zeus/.env</code>: variáveis de ambiente e chaves de API;</li>
+      <li><code>~/.zeus/google_oauth_credentials.json</code>: token OAuth do Google;</li>
+      <li><code>~/.zeus/memory.json</code>, <code>~/.zeus/zeus.db</code>: memória e histórico.</li>
+    </ul>
+
+    <h2>5. Segurança</h2>
+    <p>O usuário é responsável por manter seu ambiente seguro. Não compartilhe arquivos de credenciais ou tokens OAuth. O Zeus nunca solicita senhas diretamente.</p>
+
+    <h2>6. Contato</h2>
+    <p>Em caso de dúvidas, entre em contato: <a href="mailto:valdeir28@gmail.com">valdeir28@gmail.com</a></p>
+  </main>
+  <footer>
+    <a href="index.html">Voltar à página inicial</a>
+  </footer>
+</body>
+</html>
