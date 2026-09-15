@@ -16,6 +16,8 @@ def test_providers_dict_is_populated():
     assert "openai" in router.PROVIDERS
     assert "anthropic" in router.PROVIDERS
     assert "google" in router.PROVIDERS
+    assert "google_api" in router.PROVIDERS
+    assert "google_auth" in router.PROVIDERS
     assert "deepseek" in router.PROVIDERS
     assert "mistral" in router.PROVIDERS
 
@@ -111,11 +113,12 @@ def test_normalize_google_response_text_only():
         ],
         "usageMetadata": {"promptTokenCount": 4, "candidatesTokenCount": 3},
     }
-    normalized = router._normalize_response(raw, "google")
-    message = normalized["choices"][0]["message"]
-    assert message["content"] == "hello from gemini"
-    assert normalized["usage"]["prompt_tokens"] == 4
-    assert normalized["usage"]["completion_tokens"] == 3
+    for provider in ("google", "google_api", "google_auth"):
+        normalized = router._normalize_response(raw, provider)
+        message = normalized["choices"][0]["message"]
+        assert message["content"] == "hello from gemini"
+        assert normalized["usage"]["prompt_tokens"] == 4
+        assert normalized["usage"]["completion_tokens"] == 3
 
 
 def test_normalize_google_response_function_call():
@@ -130,7 +133,7 @@ def test_normalize_google_response_function_call():
             }
         ],
     }
-    normalized = router._normalize_response(raw, "google")
+    normalized = router._normalize_response(raw, "google_api")
     message = normalized["choices"][0]["message"]
     assert message["tool_calls"] is not None
     assert message["tool_calls"][0]["function"]["name"] == "read_file"
@@ -138,7 +141,7 @@ def test_normalize_google_response_function_call():
 
 
 def test_normalize_google_empty_candidates():
-    normalized = router._normalize_response({"candidates": []}, "google")
+    normalized = router._normalize_response({"candidates": []}, "google_auth")
     assert normalized["choices"][0]["message"]["content"] is None
 
 
@@ -169,13 +172,13 @@ def test_sanitize_gemini_schema_adds_items_for_array():
 
 
 @patch("requests.post")
-def test_google_chat_loads_dotenv_and_calls_api(mock_post):
+def test_google_api_chat_loads_dotenv_and_calls_api(mock_post):
     mock_post.return_value.status_code = 200
     mock_post.return_value.json.return_value = {
         "candidates": [{"content": {"parts": [{"text": "ok"}]}}]
     }
     with patch.dict(os.environ, {"GOOGLE_API_KEY": "fake-google-key"}, clear=False):
-        response = router.google_chat(
+        response = router.google_api_chat(
             [{"role": "user", "content": "hello"}],
             [],
             "gemini-1.5-flash",
@@ -184,29 +187,34 @@ def test_google_chat_loads_dotenv_and_calls_api(mock_post):
     mock_post.assert_called_once()
 
 
-def test_google_chat_missing_api_key_falls_back_to_oauth():
+def test_google_api_chat_missing_api_key_raises():
     with patch.dict(os.environ, {"GOOGLE_API_KEY": "", "GEMINI_API_KEY": ""}, clear=False):
-        with patch("zeus.core.router._get_google_auth_header", return_value="Bearer oauth-token"):
+        with pytest.raises(RuntimeError, match="GEMINI_API_KEY ou GOOGLE_API_KEY"):
+            router.google_api_chat([], [], "gemini-1.5-flash")
+
+
+def test_google_auth_chat_missing_oauth_token_raises():
+    with patch.dict(os.environ, {"GOOGLE_API_KEY": "", "GEMINI_API_KEY": ""}, clear=False):
+        with patch("zeus.core.google_oauth_desktop.get_access_token", return_value=None):
+            with pytest.raises(RuntimeError, match="Token OAuth do Google nao disponivel"):
+                router.google_auth_chat([], [], "gemini-1.5-flash")
+
+
+def test_google_auth_chat_uses_oauth_token():
+    with patch.dict(os.environ, {"GOOGLE_API_KEY": "", "GEMINI_API_KEY": ""}, clear=False):
+        with patch("zeus.core.google_oauth_desktop.get_access_token", return_value="oauth-token"):
             with patch("requests.post") as mock_post:
                 mock_post.return_value.status_code = 200
                 mock_post.return_value.json.return_value = {
                     "candidates": [{"content": {"parts": [{"text": "oauth-ok"}]}}]
                 }
-                response = router.google_chat(
+                response = router.google_auth_chat(
                     [{"role": "user", "content": "hello"}], [], "gemini-1.5-flash"
                 )
                 assert response["candidates"][0]["content"]["parts"][0]["text"] == "oauth-ok"
                 mock_post.assert_called_once()
-
-
-def test_google_chat_missing_api_key_reports_oauth_failure():
-    with patch.dict(os.environ, {"GOOGLE_API_KEY": "", "GEMINI_API_KEY": ""}, clear=False):
-        with patch(
-            "zeus.core.router._get_google_auth_header",
-            side_effect=RuntimeError("OAuth failed"),
-        ):
-            with pytest.raises(RuntimeError, match="OAuth failed"):
-                router.google_chat([], [], "gemini-1.5-flash")
+                headers = mock_post.call_args.kwargs["headers"]
+                assert headers["Authorization"] == "Bearer oauth-token"
 
 
 @patch("requests.post")
@@ -215,6 +223,36 @@ def test_openai_chat_missing_key_raises(mock_post):
     with patch.dict(os.environ, {"OPENAI_API_KEY": ""}, clear=False):
         with pytest.raises(RuntimeError):
             router.openai_chat([], [], "gpt-4o")
+
+
+@patch("requests.post")
+def test_opencode_go_chat_retries_on_connection_reset(mock_post):
+    env = {
+        "OPENCODE_GO_API_KEY": "fake-opencode-key",
+        "OPENCODE_GO_BASE_URL": "https://opencode.ai/zen/go/v1",
+    }
+    side_effects = [
+        ConnectionError("Connection reset by peer"),
+        ConnectionError("Connection reset by peer"),
+        MagicMock(status_code=200, json=lambda: {"choices": [{"message": {"content": "ok"}}]}),
+    ]
+    mock_post.side_effect = side_effects
+    with patch.dict(os.environ, env, clear=False):
+        with patch("zeus.core.router.time.sleep"):
+            response = router.opencode_go_chat([{"role": "user", "content": "hi"}], [], "deepseek-v4-flash")
+    assert response["choices"][0]["message"]["content"] == "ok"
+    assert mock_post.call_count == 3
+
+
+@patch("requests.post")
+def test_opencode_go_chat_fails_after_retries(mock_post):
+    env = {"OPENCODE_GO_API_KEY": "fake-opencode-key"}
+    mock_post.side_effect = ConnectionError("Connection reset by peer")
+    with patch.dict(os.environ, env, clear=False):
+        with patch("zeus.core.router.time.sleep"):
+            with pytest.raises(ConnectionError):
+                router.opencode_go_chat([{"role": "user", "content": "hi"}], [], "deepseek-v4-flash")
+    assert mock_post.call_count == 3
 
 
 def test_stream_response_accumulates_content():

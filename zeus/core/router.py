@@ -2,7 +2,26 @@
 
 import json
 import os
-from typing import Any, Dict, List, Optional
+import time
+from typing import Any, Callable, Dict, List, Optional
+
+
+def _with_retries(
+    fn: Callable[[], Any],
+    retries: int = 3,
+    backoff: float = 1.0,
+    exceptions: tuple = (ConnectionError,),
+) -> Any:
+    """Retry a callable with exponential backoff on transient network errors."""
+    last_exc: Optional[Exception] = None
+    for attempt in range(retries):
+        try:
+            return fn()
+        except exceptions as exc:
+            last_exc = exc
+            if attempt < retries - 1:
+                time.sleep(backoff * (2**attempt))
+    raise last_exc  # type: ignore[misc]
 
 
 def openrouter_chat(
@@ -73,26 +92,36 @@ def opencode_go_chat(
     import requests
 
     api_key = os.getenv("OPENCODE_GO_API_KEY")
-    base_url = os.getenv("OPENCODE_GO_BASE_URL", "https://api.opencode.co/v1")
+    base_url = os.getenv("OPENCODE_GO_BASE_URL", "https://opencode.ai/zen/go/v1")
     if not api_key:
         raise RuntimeError("OPENCODE_GO_API_KEY not set")
 
-    response = requests.post(
-        f"{base_url.rstrip('/')}/chat/completions",
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
-        json={
-            "model": model,
-            "messages": messages,
-            "tools": tools,
-            "stream": stream,
-        },
-        timeout=120,
-        stream=stream,
+    def _call() -> Any:
+        response = requests.post(
+            f"{base_url.rstrip('/')}/chat/completions",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+                "x-opencode-session": "zeus-session",
+            },
+            json={
+                "model": model,
+                "messages": messages,
+                "tools": tools,
+                "stream": stream,
+            },
+            timeout=120,
+            stream=stream,
+        )
+        response.raise_for_status()
+        return response
+
+    response = _with_retries(
+        _call,
+        retries=3,
+        backoff=1.0,
+        exceptions=(ConnectionError,),
     )
-    response.raise_for_status()
     if stream:
         return response
     return response.json()
