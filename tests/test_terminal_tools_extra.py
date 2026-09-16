@@ -25,12 +25,38 @@ def test_run_terminal_permission_denied():
     assert "denied" in result["error"]
 
 
-def test_run_terminal_unsafe():
+def test_run_terminal_unsafe_denied_without_confirmation():
     with patch("zeus.security.rate_limit.get_execution_limiter") as mock_limiter:
         with patch("zeus.tools.sandbox_client.current_user_session", return_value=("u1", "s1")):
             mock_limiter.return_value.is_allowed.return_value = True
-            terminal._permissions = PermissionManager(exec_level="allow")
+            terminal._permissions = PermissionManager(exec_level="allow")  # execution_mode defaults to "terminal"
             result = terminal.run_terminal("rm -rf /")
+    assert "error" in result
+    assert "denied" in result["error"].lower()
+
+
+def test_run_terminal_unsafe_authorized_executes():
+    with patch("zeus.security.rate_limit.get_execution_limiter") as mock_limiter:
+        with patch("zeus.tools.sandbox_client.current_user_session", return_value=("u1", "s1")):
+            mock_limiter.return_value.is_allowed.return_value = True
+            pm = PermissionManager(exec_level="allow", confirm_callback=lambda msg: "yes")
+            terminal._permissions = pm
+            with patch("subprocess.run") as mock_run:
+                mock_run.return_value.returncode = 0
+                mock_run.return_value.stdout = ""
+                mock_run.return_value.stderr = ""
+                result = terminal.run_terminal("rm -rf /")
+    assert result["exit_code"] == 0
+    mock_run.assert_called_once()
+
+
+def test_run_terminal_unsafe_blocked_in_auto_mode():
+    with patch("zeus.security.rate_limit.get_execution_limiter") as mock_limiter:
+        with patch("zeus.tools.sandbox_client.current_user_session", return_value=("u1", "s1")):
+            mock_limiter.return_value.is_allowed.return_value = True
+            with patch.dict("os.environ", {"ZEUS_EXECUTION_MODE": "auto"}, clear=False):
+                terminal._permissions = PermissionManager(exec_level="allow")
+                result = terminal.run_terminal("rm -rf /")
     assert "error" in result
     assert "Dangerous" in result["error"]
 

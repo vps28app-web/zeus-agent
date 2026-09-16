@@ -43,9 +43,17 @@ class TestToolGuardrail:
         assert res is not None
         assert "Guardrail Blocked" in res.get("error", "")
 
-    def test_dangerous_shell_command_blocked(self):
+    def test_dangerous_shell_command_not_hard_blocked_for_terminal(self):
+        # run_terminal is not hard-blocked by guardrails: in terminal mode it
+        # requires user confirmation, so the guardrail must let it through to
+        # the permission layer.
         gm = GuardrailsManager()
         res = gm.validate_tool_call("run_terminal", {"command": "rm -rf /"})
+        assert res is None
+
+    def test_dangerous_shell_command_blocked_for_sandbox_script(self):
+        gm = GuardrailsManager()
+        res = gm.validate_tool_call("execute_shell_script", {"script": "rm -rf /"})
         assert res is not None
         assert "Guardrail Blocked" in res.get("error", "")
 

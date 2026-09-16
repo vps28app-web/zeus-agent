@@ -43,13 +43,25 @@ def run_terminal(command: str, timeout: int = 60, cwd: Optional[str] = None) -> 
 
     safety = check_shell_safety(command)
     if safety:
-        from zeus.security.audit import get_audit_logger
-        get_audit_logger().log_execution(
-            tool="run_terminal", command=command,
-            result={"error": safety},
-            allowed=False,
-        )
-        return {"error": safety}
+        # Terminal mode: require explicit user confirmation instead of a hard
+        # block (the user authorizes any command in terminal mode).
+        # Auto mode has no human to authorize, so dangerous commands are blocked.
+        if _permissions.execution_mode != "terminal":
+            from zeus.security.audit import get_audit_logger
+            get_audit_logger().log_execution(
+                tool="run_terminal", command=command,
+                result={"error": safety},
+                allowed=False,
+            )
+            return {"error": safety}
+        if not _permissions.confirm_tool("run_terminal", {"command": command}):
+            from zeus.security.audit import get_audit_logger
+            get_audit_logger().log_execution(
+                tool="run_terminal", command=command,
+                result={"error": "Execution denied by user."},
+                allowed=False,
+            )
+            return {"error": "Execution denied by user / Execução negada pelo usuário."}
 
     working_dir = None
     if cwd:
@@ -93,7 +105,10 @@ def run_background_command(command: str, cwd: Optional[str] = None) -> Dict[str,
 
     safety = check_shell_safety(command)
     if safety:
-        return {"error": safety}
+        if _permissions.execution_mode != "terminal":
+            return {"error": safety}
+        if not _permissions.confirm_tool("run_background_command", {"command": command}):
+            return {"error": "Execution denied by user / Execução negada pelo usuário."}
 
     working_dir = None
     if cwd:

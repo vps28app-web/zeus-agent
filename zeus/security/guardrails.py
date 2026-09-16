@@ -109,8 +109,13 @@ class GuardrailsManager:
                 except Exception:
                     pass
 
-        # Terminal / Shell safety check
-        if tool_name in ("run_terminal", "execute_shell_script"):
+        # Terminal / Shell safety check.
+        # run_terminal / run_background_command are NOT hard-blocked here:
+        # in terminal mode they require explicit user confirmation (handled by
+        # PermissionManager), and in auto mode the terminal tool itself blocks.
+        # execute_shell_script (sandbox) has no human confirmation, so keep the
+        # hard block for it.
+        if tool_name == "execute_shell_script":
             cmd = arguments.get("command") or arguments.get("script") or ""
             from zeus.security.permissions import check_shell_safety
             safety_err = check_shell_safety(cmd)
