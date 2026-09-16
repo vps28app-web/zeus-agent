@@ -207,6 +207,24 @@ def execute_tool_call(call: Dict[str, Any], metrics, tracer, confirm_callback=No
         metrics.record_tool_call(name or "unknown", 0, error=True, result_summary=str(block_res))
         return {"tool": name, "result": block_res}
 
+    # Basic schema validation: required keys and declared argument names.
+    schema = tool.parameters
+    if schema:
+        args = arguments if isinstance(arguments, dict) else {}
+        required = schema.get("required", [])
+        missing = [k for k in required if k not in args]
+        if missing:
+            msg = f"Invalid arguments for tool '{name}': missing required keys {missing}"
+            metrics.record_tool_call(name or "unknown", 0, error=True, result_summary=msg)
+            return {"tool": name, "error": msg}
+        if args:
+            properties = schema.get("properties", {})
+            extra = [k for k in args if k not in properties]
+            if extra:
+                msg = f"Invalid arguments for tool '{name}': unknown keys {extra}"
+                metrics.record_tool_call(name or "unknown", 0, error=True, result_summary=msg)
+                return {"tool": name, "error": msg}
+
     # Enforce read-only mode
     from zeus.security.permissions import get_global_permission_manager
     pm = get_global_permission_manager()
@@ -462,7 +480,6 @@ def run_agent(
 
             # Structured JSON path.
             last_reasoning = decision.reasoning
-            messages.append({"role": "assistant", "content": content or ""})
 
             if decision.response and not decision.tool_calls:
                 final_response = decision.response
@@ -473,6 +490,7 @@ def run_agent(
                 final_response = decision.response or decision.reasoning or "No response."
                 break
 
+            # Single assistant message carrying both content (if any) and tool_calls.
             assistant_message = {"role": "assistant", "content": content or "", "tool_calls": calls}
             messages.append(assistant_message)
 

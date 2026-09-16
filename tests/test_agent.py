@@ -218,3 +218,33 @@ def test_clean_agent_response_removes_json_and_xml():
     assert "</parameter>" not in cleaned
 
 
+def test_execute_tool_call_rejects_invalid_arguments():
+    from unittest.mock import MagicMock
+
+    from zeus.core.agent import execute_tool_call
+    from zeus.core.registry import Tool
+
+    spec = Tool(
+        name="test_tool",
+        description="A test tool",
+        parameters={
+            "type": "object",
+            "properties": {"required_arg": {"type": "string"}},
+            "required": ["required_arg"],
+        },
+        handler=lambda required_arg: {"ok": required_arg},
+        tags=["test"],
+    )
+    with patch("zeus.core.agent.REGISTRY.get", return_value=spec):
+        with patch("zeus.security.permissions.get_global_permission_manager") as mock_pm:
+            mock_pm.return_value.is_tool_allowed.return_value = True
+            with patch("zeus.security.guardrails.GuardrailsManager.validate_tool_call", return_value=None):
+                result = execute_tool_call(
+                    {"function": {"name": "test_tool", "arguments": {"wrong_arg": "x"}}},
+                    MagicMock(),
+                    MagicMock(),
+                )
+    assert "error" in result
+    assert "missing required keys" in result["error"]
+
+

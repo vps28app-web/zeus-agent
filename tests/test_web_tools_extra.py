@@ -54,6 +54,7 @@ def test_web_extract_success(mock_get):
     mock_get.return_value.encoding = "utf-8"
     mock_get.return_value.content = b"<html><head><title>T</title></head><body><p>hello</p></body></html>"
     mock_get.return_value.raise_for_status = MagicMock()
+    mock_get.return_value.is_redirect = False
 
     result = web_extract("http://example.com", char_limit=100)
     assert result["status"] == "success"
@@ -75,6 +76,7 @@ def test_web_scrape_links_success(mock_get):
     mock_get.return_value.status_code = 200
     mock_get.return_value.text = '<a href="/page">link</a><a href="#x">skip</a><a href="mailto:a@b">skip2</a>'
     mock_get.return_value.raise_for_status = MagicMock()
+    mock_get.return_value.is_redirect = False
 
     result = web_scrape_links("http://example.com", limit=10)
     assert result["status"] == "success"

@@ -105,3 +105,18 @@ def test_execute_python_accepts_valid_package_name():
                             with patch("zeus.security.audit.get_audit_logger"):
                                 result = execute_python("print(1)", packages=["requests", "numpy>=1.0"])
     assert "error" not in result
+
+
+def test_execute_python_handles_triple_quotes():
+    code = '''"""Docstring with triple quotes."""
+print(inputs.get("x", "default"))
+'''
+    with patch("zeus.security.rate_limit.get_execution_limiter") as mock_limiter:
+        with patch("zeus.tools.sandbox_client.current_user_session", return_value=("u1", "s1")):
+            mock_limiter.return_value.is_allowed.return_value = True
+            with patch.object(code_execution._permissions, "can_run_sandboxed_python", return_value=True):
+                with patch("zeus.security.permissions.check_python_safety", return_value=None):
+                    with patch("zeus.tools.code_execution.run_sandboxed_command", return_value={"stdout": "hello\n"}):
+                        with patch("zeus.security.audit.get_audit_logger"):
+                            result = execute_python(code, inputs={"x": "hello"})
+    assert result.get("stdout", "").strip() == "hello"

@@ -49,16 +49,21 @@ def execute_python(
         )
         return {"error": safety}
 
-    # Build a wrapper script that deserializes inputs and runs user code
+    # Build a wrapper script that deserializes inputs and runs user code.
+    # Both inputs and user code are base64-encoded so the wrapper never contains
+    # the raw user code, avoiding issues with triple quotes or shell metachars.
+    import shlex
+
     inputs_json = json.dumps(inputs or {})
     encoded_inputs = base64.b64encode(inputs_json.encode("utf-8")).decode("utf-8")
+    encoded_code = base64.b64encode(code.encode("utf-8")).decode("utf-8")
 
-    wrapper = f'''import base64, json, sys
-_inputs = json.loads(base64.b64decode("{encoded_inputs}").decode("utf-8"))
+    wrapper = f'''import base64, json
+_inputs_json = base64.b64decode("{encoded_inputs}").decode("utf-8")
+_inputs = json.loads(_inputs_json)
+_user_code_bytes = base64.b64decode("{encoded_code}")
+_user_code = _user_code_bytes.decode("utf-8")
 _globals = {{"inputs": _inputs}}
-_user_code = """
-{code}
-"""
 exec(_user_code, _globals)
 '''
 
@@ -69,13 +74,13 @@ exec(_user_code, _globals)
     if packages:
         if not _permissions.can_install_packages():
             return {"error": _permissions.denied_message("package installation")}
-        # Validate package names to prevent shell injection.
+        # Validate package names to prevent shell injection, then quote each.
         import re
 
         for pkg in packages:
             if not re.fullmatch(r"[A-Za-z0-9_\-\.\[\]>=<~!]+", pkg):
                 return {"error": f"Invalid package name: {pkg}"}
-        install_packages = "pip install --quiet " + " ".join(packages) + " && "
+        install_packages = "pip install --quiet " + " ".join(shlex.quote(pkg) for pkg in packages) + " && "
 
     shell_command = (
         f"{install_packages}"

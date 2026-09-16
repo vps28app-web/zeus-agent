@@ -299,16 +299,20 @@ def _send_gemini_request(
     api_key: Optional[str] = None,
     auth_header: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Send a request to the Gemini Generative Language API."""
+    """Send a request to the Gemini Generative Language API.
+
+    Prefers the x-goog-api-key header for API-key auth so the key does not
+    appear in URL query parameters (which leak to logs/proxies).
+    """
     import requests
 
     base_url = "https://generativelanguage.googleapis.com/v1beta/models"
     url = f"{base_url}/{model}:generateContent"
+    headers = {"Content-Type": "application/json"}
     if auth_header:
-        headers = {"Authorization": auth_header, "Content-Type": "application/json"}
+        headers["Authorization"] = auth_header
     elif api_key:
-        url = f"{url}?key={api_key}"
-        headers = {"Content-Type": "application/json"}
+        headers["x-goog-api-key"] = api_key
     else:
         raise RuntimeError("No API key or OAuth authorization available for Google Gemini.")
 
@@ -642,7 +646,10 @@ def _normalize_response(response: Dict[str, Any], provider: str) -> Dict[str, An
 
 
 def _stream_response(response, provider: str, callback=None) -> Dict[str, Any]:
-    """Parse streaming response and accumulate into a normalized dict."""
+    """Parse streaming response and accumulate into a normalized dict.
+
+    Handles SSE (OpenAI/OpenRouter), NDJSON (Ollama), and Anthropic SSE formats.
+    """
 
     content_parts = []
     tool_calls: Dict[int, Dict[str, Any]] = {}
@@ -651,6 +658,23 @@ def _stream_response(response, provider: str, callback=None) -> Dict[str, Any]:
         if not line:
             continue
         decoded = line.decode("utf-8")
+
+        # Ollama returns NDJSON lines like {"message": {"role": "assistant", "content": "..."}}
+        if provider == "ollama":
+            try:
+                chunk = json.loads(decoded)
+            except json.JSONDecodeError:
+                continue
+            if chunk.get("done"):
+                break
+            delta_content = chunk.get("message", {}).get("content")
+            if delta_content:
+                content_parts.append(delta_content)
+                if callback:
+                    callback(delta_content)
+            # Ollama tool calls are delivered inline in non-streaming mode; skip here.
+            continue
+
         if decoded.startswith("data: "):
             decoded = decoded[6:]
         if decoded.strip() == "[DONE]":

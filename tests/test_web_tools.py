@@ -40,6 +40,7 @@ def test_web_extract_markdown():
     mock_resp.encoding = "utf-8"
     mock_resp.content = sample_html.encode("utf-8")
     mock_resp.text = sample_html
+    mock_resp.is_redirect = False
 
     with patch("requests.get", return_value=mock_resp):
         res = web_extract("https://example.com/article")
@@ -62,6 +63,7 @@ def test_web_scrape_links():
     mock_resp = MagicMock()
     mock_resp.status_code = 200
     mock_resp.text = sample_html
+    mock_resp.is_redirect = False
 
     with patch("requests.get", return_value=mock_resp):
         res = web_scrape_links("https://example.com")
@@ -81,3 +83,27 @@ def test_web_scrape_links_blocks_private_url():
     res = web_scrape_links("http://localhost/admin")
     assert "error" in res
     assert "blocked" in res["error"].lower()
+
+
+def test_web_extract_blocks_redirect_to_private_url():
+    mock_resp = MagicMock()
+    mock_resp.status_code = 302
+    mock_resp.is_redirect = True
+    mock_resp.headers = {"Location": "http://127.0.0.1:9876/internal"}
+
+    with patch("requests.get", return_value=mock_resp):
+        res = web_extract("https://example.com/article")
+    assert "error" in res
+    assert "Redirect blocked" in res["error"]
+
+
+def test_web_scrape_links_blocks_redirect_to_private_url():
+    mock_resp = MagicMock()
+    mock_resp.status_code = 301
+    mock_resp.is_redirect = True
+    mock_resp.headers = {"Location": "http://localhost/admin"}
+
+    with patch("requests.get", return_value=mock_resp):
+        res = web_scrape_links("https://example.com")
+    assert "error" in res
+    assert "Redirect blocked" in res["error"]

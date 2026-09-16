@@ -299,3 +299,15 @@ def test_stream_response_accumulates_tool_calls():
     assert tool_calls is not None
     assert tool_calls[0]["function"]["name"] == "read"
     assert tool_calls[0]["function"]["arguments"] == '{"path": "/tmp"}'
+
+
+def test_stream_response_ollama_ndjson():
+    lines = [
+        b'{"message": {"role": "assistant", "content": "hello"}}',
+        b'{"message": {"role": "assistant", "content": " world"}}',
+        b'{"message": {"role": "assistant", "content": ""}, "done": true}',
+    ]
+    mock_response = MagicMock()
+    mock_response.iter_lines.return_value = lines
+    result = router._stream_response(mock_response, "ollama")
+    assert result["choices"][0]["message"]["content"] == "hello world"

@@ -120,7 +120,12 @@ def web_extract(url: str, char_limit: int = 15000) -> Dict[str, Any]:
                 "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 ZeusAgent/1.0"
             )
         }
-        response = requests.get(url, headers=headers, timeout=25)
+        response = requests.get(url, headers=headers, timeout=25, allow_redirects=False)
+        if response.is_redirect:
+            location = response.headers.get("Location") or response.headers.get("location") or ""
+            if not _is_url_allowed(urllib.parse.urljoin(url, location)):
+                return {"url": url, "error": "Redirect blocked for security reasons (private/internal address)."}
+            return {"url": url, "error": f"Redirect to {location} blocked; pass final URL directly."}
         response.raise_for_status()
 
         encoding = response.encoding or "utf-8"
@@ -175,7 +180,12 @@ def web_scrape_links(url: str, limit: int = 30) -> Dict[str, Any]:
                 "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 ZeusAgent/1.0"
             )
         }
-        response = requests.get(url, headers=headers, timeout=20)
+        response = requests.get(url, headers=headers, timeout=20, allow_redirects=False)
+        if response.is_redirect:
+            location = response.headers.get("Location") or response.headers.get("location") or ""
+            if not _is_url_allowed(urllib.parse.urljoin(url, location)):
+                return {"url": url, "error": "Redirect blocked for security reasons (private/internal address)."}
+            return {"url": url, "error": f"Redirect to {location} blocked; pass final URL directly."}
         response.raise_for_status()
 
         soup = BeautifulSoup(response.text, "html.parser")
