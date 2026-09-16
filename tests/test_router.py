@@ -245,6 +245,25 @@ def test_opencode_go_chat_retries_on_connection_reset(mock_post):
 
 
 @patch("requests.post")
+def test_opencode_go_chat_retries_on_remote_disconnected(mock_post):
+    from http.client import RemoteDisconnected
+
+    env = {
+        "OPENCODE_GO_API_KEY": "fake-opencode-key",
+        "OPENCODE_GO_BASE_URL": "https://opencode.ai/zen/go/v1",
+    }
+    mock_post.side_effect = [
+        RemoteDisconnected("Remote end closed connection without response"),
+        MagicMock(status_code=200, json=lambda: {"choices": [{"message": {"content": "ok"}}]}),
+    ]
+    with patch.dict(os.environ, env, clear=False):
+        with patch("zeus.core.router.time.sleep"):
+            response = router.opencode_go_chat([{"role": "user", "content": "hi"}], [], "deepseek-v4-flash")
+    assert response["choices"][0]["message"]["content"] == "ok"
+    assert mock_post.call_count == 2
+
+
+@patch("requests.post")
 def test_opencode_go_chat_fails_after_retries(mock_post):
     env = {"OPENCODE_GO_API_KEY": "fake-opencode-key"}
     mock_post.side_effect = ConnectionError("Connection reset by peer")

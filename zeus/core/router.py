@@ -3,6 +3,7 @@
 import json
 import os
 import time
+from http.client import RemoteDisconnected
 from typing import Any, Callable, Dict, List, Optional
 
 
@@ -120,7 +121,7 @@ def opencode_go_chat(
         _call,
         retries=3,
         backoff=1.0,
-        exceptions=(ConnectionError,),
+        exceptions=(ConnectionError, RemoteDisconnected),
     )
     if stream:
         return response
