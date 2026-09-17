@@ -6,6 +6,8 @@ import time
 from http.client import RemoteDisconnected
 from typing import Any, Callable, Dict, List, Optional
 
+import requests
+
 
 def _with_retries(
     fn: Callable[[], Any],
@@ -23,6 +25,16 @@ def _with_retries(
             if attempt < retries - 1:
                 time.sleep(backoff * (2**attempt))
     raise last_exc  # type: ignore[misc]
+
+
+class TransientServerError(Exception):
+    """Raised when an upstream provider returns a retryable 5xx response."""
+
+    def __init__(self, status_code: int, body: str):
+        self.status_code = status_code
+        self.body = body
+        super().__init__(f"HTTP {status_code} from provider: {body[:300]}")
+
 
 
 def openrouter_chat(
@@ -114,6 +126,10 @@ def opencode_go_chat(
             timeout=120,
             stream=stream,
         )
+        # 5xx are transient server errors worth retrying; anything else
+        # (4xx auth/bad request) should fail fast.
+        if response.status_code >= 500:
+            raise TransientServerError(response.status_code, response.text)
         response.raise_for_status()
         return response
 
@@ -121,7 +137,13 @@ def opencode_go_chat(
         _call,
         retries=3,
         backoff=1.0,
-        exceptions=(ConnectionError, RemoteDisconnected),
+        exceptions=(
+            requests.exceptions.ConnectionError,
+            requests.exceptions.Timeout,
+            ConnectionError,
+            RemoteDisconnected,
+            TransientServerError,
+        ),
     )
     if stream:
         return response
@@ -491,6 +513,11 @@ def chat(
 
     try:
         response = PROVIDERS[provider](messages, tools, model, stream=stream)
+    except (requests.exceptions.ConnectionError, requests.exceptions.Timeout, RemoteDisconnected) as e:
+        raise RuntimeError(
+            f"Falha de conexão com o provedor '{provider}': verifique sua internet / "
+            f"connection failed (check internet). Detalhe: {type(e).__name__}"
+        ) from e
     except RuntimeError as e:
         err = str(e).lower()
         if "api_key" in err or "api key" in err:

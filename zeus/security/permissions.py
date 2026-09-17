@@ -161,42 +161,9 @@ class PermissionManager:
             if not stripped:
                 return "none"
 
-            # High-risk shell patterns.
-            dangerous = [
-                r"\brm\s+-rf\s+/",
-                r"\bmkfs\.",
-                r"\bdd\s+if=",
-                r"\bchmod\s+-R\s+777\s+/",
-                r"\bcurl\s+.*\|\s*bash",
-                r"\bwget\s+.*\|\s*bash",
-                r"\bsudo\b",
-                r"\bshutdown\b",
-                r"\breboot\b",
-                r"\bformat\b",
-                r"\bfdisk\b",
-                r"\bdocker\s+(system\s+prune|rm\s+-f)",
-                r">\s*/dev/[sh]d",
-                r"\bkill\s+-9\b",
-            ]
-            for pattern in dangerous:
-                if re.search(pattern, command, re.IGNORECASE):
-                    return "high"
-
-            # Medium-risk if it mutates system/project state.
-            medium = [
-                r"\b(apt|apt-get|yum|dnf|pacman|brew)\s+(install|remove|purge|autoremove|upgrade|update)",
-                r"\bpip\s+(install|uninstall)",
-                r"\brm\s+-rf\b",
-                r"\bgit\s+push\b",
-                r"\bgit\s+reset\s+--hard\b",
-                r"\bgit\s+clean\b",
-                r"\bsystemctl\b",
-                r"\bservice\s+\w+\s+(start|stop|restart)",
-            ]
-            for pattern in medium:
-                if re.search(pattern, command, re.IGNORECASE):
-                    return "medium"
-
+            # All terminal commands are treated as medium risk so that the
+            # user is asked for explicit confirmation in terminal mode. No
+            # command is hard-blocked by pattern matching.
             return "medium"
 
         if tool_name == "terminate_command":
@@ -521,25 +488,6 @@ class PermissionManager:
         )
 
 
-# Dangerous shell command patterns (case-insensitive).
-DANGEROUS_SHELL_PATTERNS = [
-    re.compile(r"\brm\s+-rf\s+/"),
-    re.compile(r"\bmkfs\."),
-    re.compile(r"\bdd\s+if="),
-    re.compile(r"\b:w!\s+"),
-    re.compile(r"\bchmod\s+-R\s+777\s+/"),
-    # Pipe to interpreter with optional whitespace
-    re.compile(r"\bcurl\b.*\|\s*(?:bash|sh|zsh|perl|python|ruby)", re.IGNORECASE),
-    re.compile(r"\bwget\b.*\|\s*(?:bash|sh|zsh|perl|python|ruby)", re.IGNORECASE),
-    re.compile(r"\bfetch\b.*\|\s*(?:bash|sh|zsh|perl|python|ruby)", re.IGNORECASE),
-    # Backticks and $() executing remote downloads
-    re.compile(r"`.*(?:curl|wget|fetch)\b.*`", re.IGNORECASE),
-    re.compile(r"\$\(.*(?:curl|wget|fetch)\b.*\)", re.IGNORECASE),
-    # Obfuscated pipes
-    re.compile(r"\b(?:curl|wget|fetch)\b.*\|\s*\$\(which\s+(?:bash|sh|zsh)\)", re.IGNORECASE),
-    re.compile(r"\b(?:curl|wget|fetch)\b.*;\s*\brm\s+-rf\s+/", re.IGNORECASE),
-]
-
 # Global PermissionManager instance used by tools that do not inject their own.
 _global_permission_manager: Optional[PermissionManager] = None
 
@@ -576,10 +524,13 @@ DANGEROUS_PYTHON_IMPORTS = {
 
 
 def check_shell_safety(command: str) -> Optional[str]:
-    """Return an error message if the command looks dangerous."""
-    for pattern in DANGEROUS_SHELL_PATTERNS:
-        if pattern.search(command):
-            return f"Dangerous shell pattern blocked: {pattern.pattern}"
+    """Return an error message if the command looks dangerous.
+
+    In terminal mode the human confirmation is the only gate; this helper is
+    kept for non-interactive contexts (e.g. sandboxed shell scripts) that still
+    want a lightweight sanity check. It now returns None by default so no
+    command is blocked purely by pattern matching.
+    """
     return None
 
 

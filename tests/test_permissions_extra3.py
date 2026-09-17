@@ -57,13 +57,13 @@ class TestToolRiskAndConfirmation:
         pm = PermissionManager()
         assert pm.classify_tool_risk("run_terminal", {"command": "  "}) == "none"
 
-    def test_classify_tool_risk_high_sudo(self):
+    def test_classify_tool_risk_medium_for_all_terminal_commands(self):
         pm = PermissionManager()
-        assert pm.classify_tool_risk("run_terminal", {"command": "sudo apt update"}) == "high"
-
-    def test_classify_tool_risk_medium_git_push(self):
-        pm = PermissionManager()
+        # All terminal commands are medium risk so the user is asked for
+        # confirmation in terminal mode. No command is hard-blocked by pattern.
+        assert pm.classify_tool_risk("run_terminal", {"command": "sudo apt update"}) == "medium"
         assert pm.classify_tool_risk("run_terminal", {"command": "git push origin main"}) == "medium"
+        assert pm.classify_tool_risk("run_terminal", {"command": "rm -rf /"}) == "medium"
 
     def test_classify_tool_risk_terminate_low(self):
         pm = PermissionManager()
@@ -239,8 +239,9 @@ class TestGlobalManager:
 
 
 class TestCheckShellSafety:
-    def test_check_shell_safety_blocks_rm_rf_root(self):
-        assert check_shell_safety("rm -rf /") is not None
+    def test_check_shell_safety_no_longer_blocks_by_pattern(self):
+        # Human confirmation is the only gate; pattern matching no longer blocks.
+        assert check_shell_safety("rm -rf /") is None
 
     def test_check_shell_safety_allows_safe(self):
         assert check_shell_safety("ls -la") is None

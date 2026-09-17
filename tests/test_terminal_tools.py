@@ -16,9 +16,9 @@ from zeus.tools.terminal import (
 @pytest.fixture(autouse=True)
 def allow_terminal_execution(monkeypatch):
     monkeypatch.setenv("ZEUS_EXECUTION_PERMISSION", "allow")
+    monkeypatch.setenv("ZEUS_EXECUTION_MODE", "auto")
     _permissions.exec_level = "allow"
     _permissions.file_level = "unrestricted"
-    _permissions.terminal_level = "unrestricted"
 
 
 def test_run_terminal_with_cwd(tmp_path):

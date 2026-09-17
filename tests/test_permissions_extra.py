@@ -102,8 +102,9 @@ def test_is_inside_project_traversal(tmp_path):
     assert pm._is_inside_project(outside) is False
 
 
-def test_check_shell_safety_blocks_rm_rf():
-    assert "Dangerous" in check_shell_safety("rm -rf /")
+def test_check_shell_safety_no_longer_blocks_by_pattern():
+    # Human confirmation is now the only gate in terminal mode.
+    assert check_shell_safety("rm -rf /") is None
     assert check_shell_safety("echo hello") is None
 
 

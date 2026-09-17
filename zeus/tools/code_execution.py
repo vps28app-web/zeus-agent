@@ -5,7 +5,7 @@ import json
 from typing import Any, Dict, List, Optional
 
 from zeus.core.registry import register_tool
-from zeus.security.permissions import PermissionManager, check_python_safety, check_shell_safety
+from zeus.security.permissions import PermissionManager, check_python_safety
 from zeus.tools.sandbox_client import run_sandboxed_command, safe_environment
 
 _permissions = PermissionManager()
@@ -115,16 +115,8 @@ def execute_shell_script(
         )
         return {"error": _permissions.denied_message("execute_shell_script")}
 
-    safety = check_shell_safety(script)
-    if safety:
-        from zeus.security.audit import get_audit_logger
-        get_audit_logger().log_execution(
-            tool="execute_shell_script", command=script[:500],
-            result={"error": safety},
-            allowed=False,
-        )
-        return {"error": safety}
-
+    # Shell scripts run inside the Go sandbox; we no longer block based on
+    # pattern matching. The sandbox isolation is the security boundary.
     encoded_script = base64.b64encode(script.encode("utf-8")).decode("utf-8")
     shell_command = f"echo '{encoded_script}' | base64 -d | bash"
     result = run_sandboxed_command(shell_command, timeout=timeout, env=safe_environment())

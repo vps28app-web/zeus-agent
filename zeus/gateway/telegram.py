@@ -77,11 +77,15 @@ class TelegramGateway:
         self._setup_permissions()
 
     def _setup_permissions(self) -> None:
-        """Configure file permission callback for this gateway."""
+        """Configure permission callbacks for this gateway."""
         def callback(_message: str) -> bool:
             # Synchronous denial: the gateway will ask via a follow-up message.
             return False
         set_file_permission_callback(callback)
+        # Wire gateway confirmation manager into the global PermissionManager so
+        # terminal-mode tool confirmations can also prompt the user.
+        from zeus.security.permissions import set_global_permission_manager, PermissionManager
+        set_global_permission_manager(PermissionManager(confirm_callback=callback))
 
     def api_url(self, method: str) -> str:
         return f"{self.base_url}/bot{self.token}/{method}"
@@ -213,7 +217,7 @@ class TelegramGateway:
                     platform="telegram",
                 )
 
-                # Check if a file permission confirmation was triggered.
+                # Check if a file or terminal permission confirmation was triggered.
                 if isinstance(response, dict) and response.get("permission_required"):
                     perm = response["permission_required"]
                     action = perm.get("action", "write")
@@ -228,6 +232,24 @@ class TelegramGateway:
                         ),
                     )
                     self.send_message(chat_id, self._confirmations.format_question(action, path), reply_to_message_id=message_id)
+                    return
+
+                # Terminal-mode confirmations are triggered when the tool returns
+                # an explicit denial and the command is awaiting user approval.
+                terminal_err = response.get("error", "") if isinstance(response, dict) else ""
+                if isinstance(terminal_err, str) and terminal_err.startswith("Execution confirmation / Confirmação de execução"):
+                    command = self._extract_command_from_confirmation(terminal_err)
+                    self._confirmations.request(
+                        "telegram",
+                        user_id,
+                        "terminal",
+                        command,
+                        on_response=lambda choice, original=text, cid=chat_id, mid=message_id, sid=logger.session_id, cmd=command: (
+                            self._resume_after_terminal_confirmation(original, choice, cid, mid, sid, user_id, cmd)
+                        ),
+                    )
+                    question = self._confirmations.format_question("terminal", command)
+                    self.send_message(chat_id, question, reply_to_message_id=message_id)
                     return
 
                 logger.log_turn(
@@ -247,6 +269,63 @@ class TelegramGateway:
             finally:
                 typing_stop.set()
                 typing_thread.join(timeout=1)
+
+        t = threading.Thread(target=worker, daemon=True)
+        t.start()
+        self._worker_threads.append(t)
+        self._worker_threads = [t for t in self._worker_threads if t.is_alive()]
+
+    def _extract_command_from_confirmation(self, message: str) -> str:
+        """Extract the command from a terminal confirmation summary."""
+        for line in message.splitlines():
+            if line.strip().startswith("• Command / Comando:"):
+                return line.split(":", 1)[1].strip()
+        return ""
+
+    def _resume_after_terminal_confirmation(
+        self,
+        original_input: str,
+        choice: str,
+        chat_id: int,
+        message_id: int,
+        logger_session_id: str,
+        user_id: str,
+        command: str,
+    ) -> None:
+        """Resume agent execution after user confirms/denies a terminal command."""
+        if choice == "deny":
+            self.send_message(chat_id, "Ação negada pelo usuário / Action denied by user.", reply_to_message_id=message_id)
+            return
+
+        from zeus.security.permissions import get_global_permission_manager
+
+        pm = get_global_permission_manager()
+        if choice in ("always", "persist"):
+            pm.grant_permission("tool:run_terminal", None, scope=choice)
+        if choice == "once":
+            pm._once_confirmed_actions.add(f"tool:run_terminal:{command}")
+
+        instruction = (
+            f"{original_input}\n\n"
+            f"[O usuário permitiu a execução do comando '{command}' "
+            f"({'desta vez' if choice == 'once' else 'nesta sessão' if choice == 'always' else 'permanentemente'}). "
+            f"Execute o comando e retorne o resultado.]"
+        )
+
+        def worker():
+            logger = get_logger(logger_session_id)
+            try:
+                response = _run_agent_with_timeout(
+                    instruction,
+                    session_id=logger.session_id,
+                    user_id=user_id,
+                    platform="telegram",
+                )
+                logger.log_turn("assistant", response, metadata={"chat_id": chat_id, "user_id": user_id})
+                self.send_message(chat_id, response, reply_to_message_id=message_id)
+            except Exception as e:
+                logger.log_turn("error", str(e), metadata={"chat_id": chat_id})
+                self.send_message(chat_id, f"Erro ao executar após autorização: {e}", reply_to_message_id=message_id)
 
         t = threading.Thread(target=worker, daemon=True)
         t.start()

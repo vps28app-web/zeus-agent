@@ -18,6 +18,7 @@ DEFAULT_PRICES: Dict[str, Dict[str, float]] = {
     "google/gemini-1.5-pro": {"input": 1.25, "output": 5.00},
     "google/gemini-1.5-flash": {"input": 0.075, "output": 0.30},
     "kimi-k2.7-code": {"input": 0.0, "output": 0.0},
+    "deepseek-v4-pro": {"input": 0.0, "output": 0.0},
     "ollama/llama3.1": {"input": 0.0, "output": 0.0},
 }
 

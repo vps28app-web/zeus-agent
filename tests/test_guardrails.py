@@ -51,11 +51,12 @@ class TestToolGuardrail:
         res = gm.validate_tool_call("run_terminal", {"command": "rm -rf /"})
         assert res is None
 
-    def test_dangerous_shell_command_blocked_for_sandbox_script(self):
+    def test_dangerous_shell_command_not_blocked_for_sandbox_script(self):
+        # Shell scripts run inside the Go sandbox; guardrails no longer block
+        # based on pattern matching.
         gm = GuardrailsManager()
         res = gm.validate_tool_call("execute_shell_script", {"script": "rm -rf /"})
-        assert res is not None
-        assert "Guardrail Blocked" in res.get("error", "")
+        assert res is None
 
     def test_dangerous_python_import_blocked(self):
         gm = GuardrailsManager()

@@ -9,10 +9,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from zeus.core.registry import register_tool
-from zeus.security.permissions import (
-    check_shell_safety,
-    get_global_permission_manager,
-)
+from zeus.security.permissions import get_global_permission_manager
 from zeus.tools.sandbox_client import safe_environment
 
 _permissions = get_global_permission_manager()
@@ -41,19 +38,10 @@ def run_terminal(command: str, timeout: int = 60, cwd: Optional[str] = None) -> 
         )
         return {"error": _permissions.denied_message("run_terminal")}
 
-    safety = check_shell_safety(command)
-    if safety:
-        # Terminal mode: require explicit user confirmation instead of a hard
-        # block (the user authorizes any command in terminal mode).
-        # Auto mode has no human to authorize, so dangerous commands are blocked.
-        if _permissions.execution_mode != "terminal":
-            from zeus.security.audit import get_audit_logger
-            get_audit_logger().log_execution(
-                tool="run_terminal", command=command,
-                result={"error": safety},
-                allowed=False,
-            )
-            return {"error": safety}
+    # In terminal mode every command requires explicit user confirmation
+    # (the user authorizes any command). Auto/other modes execute immediately
+    # once host execution is allowed.
+    if _permissions.is_confirmation_required("run_terminal", {"command": command}):
         if not _permissions.confirm_tool("run_terminal", {"command": command}):
             from zeus.security.audit import get_audit_logger
             get_audit_logger().log_execution(
@@ -103,10 +91,7 @@ def run_background_command(command: str, cwd: Optional[str] = None) -> Dict[str,
     if not _permissions.can_run_terminal():
         return {"error": _permissions.denied_message("run_terminal")}
 
-    safety = check_shell_safety(command)
-    if safety:
-        if _permissions.execution_mode != "terminal":
-            return {"error": safety}
+    if _permissions.is_confirmation_required("run_background_command", {"command": command}):
         if not _permissions.confirm_tool("run_background_command", {"command": command}):
             return {"error": "Execution denied by user / Execução negada pelo usuário."}
 

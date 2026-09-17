@@ -14,7 +14,8 @@ from zeus.tools.config_tools import fetch_models
 
 MODEL_PRESETS = {
     "opencode_go": [
-        ("kimi-k2.7-code", "Kimi K2.5 Code (recomendado para código)"),
+        ("deepseek-v4-pro", "DeepSeek V4 Pro (padrão)"),
+        ("kimi-k2.7-code", "Kimi K2.5 Code"),
     ],
     "openrouter": [
         ("openrouter/auto", "Auto (escolha automática)"),
