@@ -16,6 +16,7 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.formatted_text import ANSI
 from prompt_toolkit.history import FileHistory
+from prompt_toolkit.layout.processors import PasswordProcessor
 
 
 class ZeusCommandCompleter(Completer):
@@ -266,21 +267,28 @@ def _ask_terminal_permission_prompt(message: str) -> Any:
     return False
 
 
+def _prompt_hidden(message) -> str:
+    """Read a line with fully hidden input (no echo, no asterisks).
+
+    Uses a dedicated PromptSession with a PasswordProcessor whose mask
+    character is empty, so nothing appears as the user types.
+    """
+    session = PromptSession(input_processors=[PasswordProcessor(char="")])
+    return session.prompt(message)
+
+
 def _ask_sudo_password(message: str) -> Optional[str]:
     """Prompt for sudo password without echoing it to the terminal or logs.
 
-    Uses prompt_toolkit's password mode so input stays hidden inside the
-    active CLI session (getpass conflicts with prompt_toolkit's terminal
-    control and may leak typed characters).
+    Uses prompt_toolkit's password mode with an empty mask so input stays
+    fully hidden inside the active CLI session (getpass conflicts with
+    prompt_toolkit's terminal control and may leak typed characters).
     """
     print()
     print(_color(" 🔐 SUDO REQUIRED / SUDO NECESSÁRIO ", "1;33"))
     print(_color(message, 90))
     try:
-        password = active_session.prompt(
-            ANSI(f"{_color('❓', 33)} {_color('Senha sudo:', '1;33')} "),
-            is_password=True,
-        )
+        password = _prompt_hidden(ANSI(f"{_color('❓', 33)} {_color('Senha sudo:', '1;33')} "))
     except (EOFError, KeyboardInterrupt):
         return None
     return password if password else None
@@ -289,16 +297,14 @@ def _ask_sudo_password(message: str) -> Optional[str]:
 def _ask_ssh_password(message: str) -> Optional[str]:
     """Prompt for SSH password without echoing it to the terminal or logs.
 
-    Uses prompt_toolkit's password mode for the same reason as sudo above.
+    Uses prompt_toolkit's password mode with an empty mask for the same
+    reason as sudo above.
     """
     print()
     print(_color(" 🔑 SSH PASSWORD REQUIRED / SENHA SSH NECESSÁRIA ", "1;33"))
     print(_color(message, 90))
     try:
-        password = active_session.prompt(
-            ANSI(f"{_color('❓', 33)} {_color('Senha SSH:', '1;33')} "),
-            is_password=True,
-        )
+        password = _prompt_hidden(ANSI(f"{_color('❓', 33)} {_color('Senha SSH:', '1;33')} "))
     except (EOFError, KeyboardInterrupt):
         return None
     return password if password else None
