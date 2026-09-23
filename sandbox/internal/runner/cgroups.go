@@ -18,7 +18,9 @@ func applyCgroups(memoryMB, cpuPct, maxPids int) (func(), error) {
 	sliceName := fmt.Sprintf("zeus-sandbox-%d", os.Getpid())
 	slicePath := filepath.Join(cgroupBase, sliceName)
 	if err := os.MkdirAll(slicePath, 0755); err != nil {
-		return func() {}, fmt.Errorf("failed to create cgroup slice: %w", err)
+		// Non-root users often cannot create cgroup slices. Degrade gracefully
+		// instead of failing the whole command.
+		return func() {}, nil
 	}
 
 	// Move current process into the slice so child processes inherit it.

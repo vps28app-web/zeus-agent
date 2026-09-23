@@ -84,6 +84,7 @@ class PermissionManager:
         file_level: Optional[str] = None,
         project_dir: Optional[Path] = None,
         confirm_callback: Optional[Callable[[str], bool]] = None,
+        password_callback: Optional[Callable[[str], Optional[str]]] = None,
         user_id: Optional[str] = None,
     ):
         self._exec_level_override = exec_level.lower() if exec_level else None
@@ -91,12 +92,45 @@ class PermissionManager:
 
         self.project_dir = (project_dir or Path(os.getenv("ZEUS_PROJECT_DIR", Path.cwd()))).resolve()
         self.confirm_callback = confirm_callback
+        self.password_callback = password_callback
         self.user_id = user_id or "anonymous"
 
         # In-memory session confirmations.
         self._confirmed_actions: Set[str] = set()
         self._once_confirmed_actions: Set[str] = set()
+        self._cached_passwords: Dict[str, str] = {}
         self._lock = threading.Lock()
+
+    def ask_password(self, message: str, cache_key: Optional[str] = None) -> Optional[str]:
+        """Prompt the user for a password (ghost/secure input), never echoing it.
+
+        When cache_key is provided, the password is cached in memory for the
+        rest of the session and returned on subsequent calls with the same key,
+        so the user is not re-prompted for every sudo/ssh command.
+
+        Returns None if no callback is configured or the user cancels.
+        """
+        if cache_key:
+            with self._lock:
+                if cache_key in self._cached_passwords:
+                    return self._cached_passwords[cache_key]
+
+        if not self.password_callback:
+            return None
+        try:
+            password = self.password_callback(message)
+        except Exception:
+            return None
+
+        if password and cache_key:
+            with self._lock:
+                self._cached_passwords[cache_key] = password
+        return password
+
+    def clear_cached_passwords(self) -> None:
+        """Forget all cached session passwords."""
+        with self._lock:
+            self._cached_passwords.clear()
 
     # ------------------------------------------------------------------
     # Env-backed properties
@@ -137,6 +171,12 @@ class PermissionManager:
     # ------------------------------------------------------------------
     # Mode helpers
     # ------------------------------------------------------------------
+    def set_exec_level(self, level: str) -> None:
+        """Update the execution level at runtime (used by /mode commands)."""
+        level = level.lower()
+        if level in self.EXEC_LEVELS:
+            self._exec_level_override = level
+
     def is_tool_allowed(self, tool_name: str) -> bool:
         """Return False if the tool is blocked by read-only mode."""
         if not self.read_only:
@@ -330,7 +370,7 @@ class PermissionManager:
         if not isinstance(answer, str):
             return None
         choice = answer.strip().lower()
-        if choice in ("y", "yes", "sim", "once"):
+        if choice in ("y", "yes", "sim", "s", "once"):
             return "once"
         if choice in ("a", "always", "sempre"):
             return "always"

@@ -49,6 +49,7 @@ You MUST respond with a single valid JSON object matching this exact schema:
 9. **Learn from reasoning.** When you successfully solve a task, your reasoning may be saved to help with similar future tasks.
 10. **Strict Tool Verification.** Only call tools explicitly provided in your active tools schema. If an MCP server or tool is disabled or removed, do not attempt to invoke it; use native tools instead.
 11. **Learn from the past.** When facing a task, check if past learnings or reasoning memories provide a relevant solution pattern; prefer proven approaches.
+12. **Execution modes are user commands, not your job.** The user switches execution modes themselves with slash commands in the CLI: `/mode sandbox`, `/mode terminal`, `/mode auto`, `/mode readonly`, `/mode dryrun`. If the user asks to change or check the mode, tell them to use `/mode <name>` (or `/mode status` to see the current one). Do NOT hunt through memory, the database, code files, or the .env to figure out how to change it, and do NOT call update_zeus_config to set ZEUS_EXECUTION_* — that is not how modes change and it produces wrong values. The mode is managed by the CLI, outside your tool loop.
 """
 
 
@@ -456,6 +457,22 @@ def run_agent(
                         tracer.finish_span(status="ok", attributes={"permission_required": perm})
                         return {
                             "permission_required": perm,
+                            "pending_input": user_input,
+                        }
+
+                    # SSH password requested: propagate to CLI for secure prompt.
+                    if isinstance(tool_res, dict) and tool_res.get("ssh_password_required"):
+                        tracer.finish_span(status="ok", attributes={"ssh_password_required": True})
+                        return {
+                            "ssh_password_required": tool_res,
+                            "pending_input": user_input,
+                        }
+
+                    # SSH user requested: propagate to CLI for a plain prompt.
+                    if isinstance(tool_res, dict) and tool_res.get("ssh_user_required"):
+                        tracer.finish_span(status="ok", attributes={"ssh_user_required": True})
+                        return {
+                            "ssh_user_required": tool_res,
                             "pending_input": user_input,
                         }
 

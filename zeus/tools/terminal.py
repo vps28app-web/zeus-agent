@@ -2,6 +2,7 @@
 
 import fcntl
 import os
+import re
 import subprocess
 import time
 import uuid
@@ -12,8 +13,78 @@ from zeus.core.registry import register_tool
 from zeus.security.permissions import get_global_permission_manager
 from zeus.tools.sandbox_client import safe_environment
 
-_permissions = get_global_permission_manager()
 _background_processes: Dict[str, Dict[str, Any]] = {}
+
+
+def _permissions():
+    """Return the current global PermissionManager (may change at runtime via /mode)."""
+    return get_global_permission_manager()
+
+
+_SUDO_RE = re.compile(r"(^|[;&|(\n]\s*)sudo(?![A-Za-z0-9_-])")
+
+
+def _needs_sudo(command: str) -> bool:
+    """Return True if the command invokes sudo as a distinct word."""
+    return bool(_SUDO_RE.search(command))
+
+
+def _run_with_optional_sudo(command: str, timeout: int, cwd, pm) -> Dict[str, Any]:
+    """Run a shell command, prompting for sudo password if the command needs it.
+
+    The password is read via the secure callback (never echoed), passed to
+    `sudo -S` on stdin, and dropped from memory immediately after use.
+    """
+    env = safe_environment()
+    if not _needs_sudo(command):
+        result = subprocess.run(  # nosec B602
+            command,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            cwd=cwd,
+            env=env,
+        )
+        return {
+            "exit_code": result.returncode,
+            "stdout": result.stdout[:8000],
+            "stderr": result.stderr[:4000],
+        }
+
+    # Command needs sudo. Ask for the password securely (cached for the session).
+    password = pm.ask_password(
+        f"O comando requer sudo:\n  {command}",
+        cache_key="sudo",
+    )
+    if password is None:
+        return {
+            "exit_code": 1,
+            "stdout": "",
+            "stderr": "Sudo password not provided / senha sudo não fornecida.",
+        }
+
+    # Replace first `sudo` with `sudo -S` so it reads the password from stdin.
+    sudo_command = _SUDO_RE.sub(r"\1sudo -S", command, count=1)
+    try:
+        result = subprocess.run(  # nosec B602
+            sudo_command,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            cwd=cwd,
+            env=env,
+            input=password + "\n",
+        )
+        return {
+            "exit_code": result.returncode,
+            "stdout": result.stdout[:8000],
+            "stderr": result.stderr[:4000],
+        }
+    finally:
+        # Drop the password reference as soon as the subprocess returns.
+        password = None
 
 
 def run_terminal(command: str, timeout: int = 60, cwd: Optional[str] = None) -> Dict[str, Any]:
@@ -24,25 +95,27 @@ def run_terminal(command: str, timeout: int = 60, cwd: Optional[str] = None) -> 
     from zeus.security.rate_limit import get_execution_limiter
     from zeus.tools.sandbox_client import current_user_session
 
+    pm = _permissions()
+
     limiter = get_execution_limiter()
     user_id, session_id = current_user_session()
     if not limiter.is_allowed("run_terminal", user_id=user_id, session_id=session_id):
         return {"error": "Rate limit exceeded for run_terminal. Try again later."}
 
-    if not _permissions.can_run_terminal():
+    if not pm.can_run_terminal():
         from zeus.security.audit import get_audit_logger
         get_audit_logger().log_execution(
             tool="run_terminal", command=command,
-            result={"error": _permissions.denied_message("run_terminal")},
+            result={"error": pm.denied_message("run_terminal")},
             allowed=False,
         )
-        return {"error": _permissions.denied_message("run_terminal")}
+        return {"error": pm.denied_message("run_terminal")}
 
     # In terminal mode every command requires explicit user confirmation
     # (the user authorizes any command). Auto/other modes execute immediately
     # once host execution is allowed.
-    if _permissions.is_confirmation_required("run_terminal", {"command": command}):
-        if not _permissions.confirm_tool("run_terminal", {"command": command}):
+    if pm.is_confirmation_required("run_terminal", {"command": command}):
+        if not pm.confirm_tool("run_terminal", {"command": command}):
             from zeus.security.audit import get_audit_logger
             get_audit_logger().log_execution(
                 tool="run_terminal", command=command,
@@ -57,20 +130,12 @@ def run_terminal(command: str, timeout: int = 60, cwd: Optional[str] = None) -> 
         if not Path(working_dir).exists():
             return {"error": f"Working directory does not exist: {cwd}"}
 
-    result = subprocess.run(  # nosec B602
-        command,
-        shell=True,
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        cwd=working_dir,
-        env=safe_environment(),
-    )
+    result = _run_with_optional_sudo(command, timeout, working_dir, pm)
     output = {
         "command": command,
-        "exit_code": result.returncode,
-        "stdout": result.stdout[:8000],
-        "stderr": result.stderr[:4000],
+        "exit_code": result["exit_code"],
+        "stdout": result["stdout"],
+        "stderr": result["stderr"],
         "cwd": working_dir,
     }
     from zeus.security.audit import get_audit_logger
@@ -83,16 +148,18 @@ def run_background_command(command: str, cwd: Optional[str] = None) -> Dict[str,
     from zeus.security.rate_limit import get_execution_limiter
     from zeus.tools.sandbox_client import current_user_session
 
+    pm = _permissions()
+
     limiter = get_execution_limiter()
     user_id, session_id = current_user_session()
     if not limiter.is_allowed("run_terminal", user_id=user_id, session_id=session_id):
         return {"error": "Rate limit exceeded for run_background_command. Try again later."}
 
-    if not _permissions.can_run_terminal():
-        return {"error": _permissions.denied_message("run_terminal")}
+    if not pm.can_run_terminal():
+        return {"error": pm.denied_message("run_terminal")}
 
-    if _permissions.is_confirmation_required("run_background_command", {"command": command}):
-        if not _permissions.confirm_tool("run_background_command", {"command": command}):
+    if pm.is_confirmation_required("run_background_command", {"command": command}):
+        if not pm.confirm_tool("run_background_command", {"command": command}):
             return {"error": "Execution denied by user / Execução negada pelo usuário."}
 
     working_dir = None

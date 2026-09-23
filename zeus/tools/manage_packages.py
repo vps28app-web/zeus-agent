@@ -10,7 +10,7 @@ import subprocess
 from typing import Any, Dict, Optional
 
 from zeus.core.registry import register_tool
-from zeus.security.permissions import PermissionManager
+from zeus.security.permissions import get_global_permission_manager
 
 ALLOWED_MANAGERS = ("apt", "flatpak", "pip")
 
@@ -110,7 +110,7 @@ def manage_packages(
     confirm: bool = True,
 ) -> Dict[str, Any]:
     """Run an apt/flatpak/pip command after checking execution mode and confirming mutating operations."""
-    pm = PermissionManager()
+    pm = get_global_permission_manager()
 
     if not pm.can_run_terminal():
         return {

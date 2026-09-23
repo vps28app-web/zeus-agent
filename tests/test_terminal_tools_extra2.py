@@ -5,23 +5,27 @@ from unittest import mock
 
 import pytest
 
-from zeus.security.permissions import PermissionManager
+from zeus.security.permissions import PermissionManager, set_global_permission_manager
 from zeus.tools import terminal
+
+
+def _set_pm(pm: PermissionManager):
+    set_global_permission_manager(pm)
 
 
 @pytest.fixture(autouse=True)
 def reset_permissions(monkeypatch):
     monkeypatch.setenv("ZEUS_EXECUTION_MODE", "auto")
-    terminal._permissions = PermissionManager(exec_level="allow")
+    _set_pm(PermissionManager(exec_level="allow"))
     yield
-    terminal._permissions = PermissionManager(exec_level="allow")
+    _set_pm(PermissionManager(exec_level="allow"))
 
 
 def test_run_terminal_no_longer_blocked_by_pattern():
     with mock.patch("zeus.security.rate_limit.get_execution_limiter") as mock_limiter:
         with mock.patch("zeus.tools.sandbox_client.current_user_session", return_value=("u1", "s1")):
             mock_limiter.return_value.is_allowed.return_value = True
-            terminal._permissions = PermissionManager(exec_level="allow")
+            _set_pm(PermissionManager(exec_level="allow"))
             with mock.patch("subprocess.run") as mock_run:
                 mock_run.return_value.returncode = 0
                 mock_run.return_value.stdout = ""
@@ -40,7 +44,7 @@ def test_run_background_command_rate_limited():
 
 
 def test_run_background_command_no_longer_blocked_by_pattern():
-    terminal._permissions = PermissionManager(exec_level="allow")
+    _set_pm(PermissionManager(exec_level="allow"))
     result = terminal.run_background_command("rm -rf /")
     assert result.get("status") == "started"
 

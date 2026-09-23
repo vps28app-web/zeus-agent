@@ -1,6 +1,7 @@
 """Interactive CLI for Zeus."""
 
 import argparse
+import getpass
 import json
 import os
 import shutil
@@ -52,22 +53,50 @@ class ZeusCommandCompleter(Completer):
                 prefix = parts[1] if len(parts) == 2 else ""
                 for name in self.SKILL_SETS:
                     if name.startswith(prefix):
-                        yield Completion(
-                            name,
-                            start_position=-len(prefix),
-                            display=name,
-                        )
+                        if prefix:
+                            yield Completion(
+                                name,
+                                start_position=-len(prefix),
+                                display=name,
+                            )
+                        elif document.text_before_cursor.endswith(" "):
+                            yield Completion(
+                                name,
+                                start_position=0,
+                                display=name,
+                            )
+                        else:
+                            yield Completion(
+                                " " + name,
+                                start_position=0,
+                                display=name,
+                            )
                 return
             # complete mode names after /mode
             if query == "/mode" and len(parts) <= 2:
                 prefix = parts[1] if len(parts) == 2 else ""
                 for name in self.MODES:
                     if name.startswith(prefix):
-                        yield Completion(
-                            name,
-                            start_position=-len(prefix),
-                            display=name,
-                        )
+                        if prefix:
+                            yield Completion(
+                                name,
+                                start_position=-len(prefix),
+                                display=name,
+                            )
+                        elif document.text_before_cursor.endswith(" "):
+                            yield Completion(
+                                name,
+                                start_position=0,
+                                display=name,
+                            )
+                        else:
+                            # No space typed yet: prepend one so it doesn't
+                            # glue onto "/mode" -> "/modesandbox".
+                            yield Completion(
+                                " " + name,
+                                start_position=0,
+                                display=name,
+                            )
                 return
             for cmd, desc in self.COMMANDS.items():
                 if cmd.startswith(query):
@@ -161,6 +190,7 @@ from zeus.tools import (  # noqa: E402,F401
     sandbox,
     sandbox_client,
     scheduler,
+    ssh_run,
     terminal,
     user_profile_tools,
     web,
@@ -207,6 +237,94 @@ def _ask_file_permission(session: PromptSession, message: str) -> Any:
         return False
     return answer.strip().lower()
 
+
+def _ask_terminal_permission_prompt(message: str) -> Any:
+    """Confirmation for terminal/host commands in terminal mode.
+
+    Returns True (once), "always" (rest of session), or False (deny).
+    """
+    print()
+    print(_color(" ⚠️  TERMINAL EXECUTION / EXECUÇÃO NO TERMINAL ", "1;33"))
+    for line in message.splitlines():
+        if line.strip():
+            print(f"{_color('│', 33)} {line}")
+    print(f"{_color('│', 33)}")
+    print(f"{_color('│', 33)} {_color('[s]', '1;32')} Sim, executar agora")
+    print(f"{_color('│', 33)} {_color('[a]', '1;34')} Sim, autorizar TODOS até o fim da sessão")
+    print(f"{_color('│', 33)} {_color('[n]', '1;31')} Não")
+    try:
+        answer = active_session.prompt(
+            ANSI(f"{_color('❓', 33)} Executar? / Run? ({_color('s', '1;32')}/{_color('a', '1;34')}/{_color('n', '1;31')}): ")
+        )
+    except (EOFError, KeyboardInterrupt):
+        return False
+    choice = answer.strip().lower()
+    if choice in ("a", "always", "sempre", "todos"):
+        return "always"
+    if choice in ("s", "sim", "y", "yes"):
+        return True
+    return False
+
+
+def _ask_sudo_password(message: str) -> Optional[str]:
+    """Prompt for sudo password without echoing it to the terminal or logs."""
+    print()
+    print(_color(" 🔐 SUDO REQUIRED / SUDO NECESSÁRIO ", "1;33"))
+    print(_color(message, 90))
+    try:
+        password = getpass.getpass(_color("Senha sudo: ", "1;33"))
+    except (EOFError, KeyboardInterrupt):
+        return None
+    return password if password else None
+
+
+def _ask_ssh_password(message: str) -> Optional[str]:
+    """Prompt for SSH password without echoing it to the terminal or logs."""
+    print()
+    print(_color(" 🔑 SSH PASSWORD REQUIRED / SENHA SSH NECESSÁRIA ", "1;33"))
+    print(_color(message, 90))
+    try:
+        password = getpass.getpass(_color("Senha SSH: ", "1;33"))
+    except (EOFError, KeyboardInterrupt):
+        return None
+    return password if password else None
+
+
+def _handle_sudo_required(result: Dict[str, Any], session: PromptSession) -> Optional[Dict[str, Any]]:
+    """If a tool needs sudo, prompt for password securely and retry once."""
+    if not isinstance(result, dict) or not result.get("sudo_required"):
+        return None
+
+    pid = result.get("pid")
+    command = result.get("command", "")
+    msg = result.get("message", "Sudo required.")
+    password = _ask_sudo_password(msg)
+    if password is None:
+        print(_color("Operação cancelada.", "1;31"))
+        return {"cancelled": True, "error": "Sudo password not provided."}
+
+    try:
+        if command:
+            parts = command.split()
+            sudo_parts = ["sudo", "-S"] + parts[1:]
+        else:
+            sudo_parts = ["sudo", "-S", "kill", "-9", str(pid)]
+        proc = subprocess.run(
+            sudo_parts,
+            input=password + "\n",
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        password = ""
+        if proc.returncode != 0:
+            print(_color(f"Sudo falhou: {proc.stderr.strip()}", "1;31"))
+            return {"error": proc.stderr.strip()}
+        print(_color("Sudo executado com sucesso.", "1;32"))
+        return {"success": True}
+    except Exception as e:
+        print(_color(f"Erro ao executar sudo: {e}", "1;31"))
+        return {"error": str(e)}
 
 
 
@@ -973,6 +1091,8 @@ def _handle_mode_command(text: str) -> None:
     pm = PermissionManager()
     _ = pm  # avoid unused variable lint; instance is used for side-effects
 
+    from zeus.security.permissions import get_global_permission_manager
+
     if subcmd in ("", "menu"):
         _print_mode_menu(show_commands=True)
         return
@@ -981,11 +1101,14 @@ def _handle_mode_command(text: str) -> None:
         _print_mode_menu(show_commands=False)
         return
 
+    pm = get_global_permission_manager()
+
     if subcmd in ("sandbox", "safe"):
         _set_zeus_env("ZEUS_EXECUTION_PERMISSION", "sandbox_only")
         _set_zeus_env("ZEUS_EXECUTION_MODE", "terminal")
         _set_zeus_env("ZEUS_DRY_RUN", "0")
         _set_zeus_env("ZEUS_READ_ONLY", "0")
+        pm.set_exec_level("sandbox_only")
         print(f"\n{_color('🛡️  Modo sandbox ativado.', 32)}")
         print(f"{_color('   Terminal do host bloqueado.', 90)}\n")
         return
@@ -995,6 +1118,7 @@ def _handle_mode_command(text: str) -> None:
         _set_zeus_env("ZEUS_EXECUTION_MODE", "terminal")
         _set_zeus_env("ZEUS_DRY_RUN", "0")
         _set_zeus_env("ZEUS_READ_ONLY", "0")
+        pm.set_exec_level("allow")
         print(f"\n{_color('⚡ Modo terminal ativado.', 33)}")
         print(f"{_color('   run_terminal liberado com confirmação humana.', 90)}")
         print(f"{_color('   Comandos de alto risco pedirão aprovação.', 31)}\n")
@@ -1005,6 +1129,7 @@ def _handle_mode_command(text: str) -> None:
         _set_zeus_env("ZEUS_EXECUTION_MODE", "auto")
         _set_zeus_env("ZEUS_DRY_RUN", "0")
         _set_zeus_env("ZEUS_READ_ONLY", "0")
+        pm.set_exec_level("allow")
         print(f"\n{_color('🚀 Modo automático ativado.', 35)}")
         print(f"{_color('   run_terminal executa sem confirmação.', 90)}")
         print(f"{_color('   Apenas o resultado é apresentado.', 90)}\n")
@@ -1385,13 +1510,47 @@ def _print_prompt_header(logger, metrics) -> None:
     mcp_mgr = MCPManager.get_instance()
     connected = [name for name, c in mcp_mgr.clients.items() if c.is_connected]
 
+    # Current execution mode label.
+    from zeus.security.permissions import get_global_permission_manager
+    pm = get_global_permission_manager()
+    exec_level = pm.exec_level
+    runtime_mode = pm.execution_mode
+    if pm.read_only:
+        mode_label = "readonly"
+        mode_color = "1;34"
+    elif exec_level == "deny":
+        mode_label = "deny"
+        mode_color = "1;31"
+    elif exec_level == "sandbox_only":
+        mode_label = "sandbox"
+        mode_color = "1;32"
+    elif runtime_mode == "auto":
+        mode_label = "auto"
+        mode_color = "1;35"
+    else:
+        mode_label = "terminal"
+        mode_color = "1;33"
+    if pm.dry_run and mode_label in ("terminal", "auto"):
+        mode_label += "+dryrun"
+
     llm_conn = f"🌐 API:{provider}"
     tools_conn = f"🔌 MCP:{','.join(connected)}" if connected else "⚡ Tools:Native"
 
-    title = f" 👤 VOCÊ | {model} ({llm_conn}) | {tools_conn} | in:{in_tokens} out:{out_tokens} | {duration} | {context_bar} "
-    remaining = max(5, term_width - len(title) - 6)
+    # Build the header with the mode highlighted in its own color while the
+    # rest of the line stays yellow. Avoid nested _color() because the inner
+    # reset (\033[0m) turns off the outer color.
+    rest = (
+        f" {model} ({llm_conn}) | {tools_conn} "
+        f"| in:{in_tokens} out:{out_tokens} | {duration} | {context_bar} "
+    )
+    title = (
+        f"\033[1;33m 👤 VOCÊ | "
+        f"\033[{mode_color}mMODO:{mode_label}"
+        f"\033[1;33m |{rest}"
+    )
+    remaining = max(5, term_width - _visible_width(title) - 6)
 
-    top = _color("╭──", 33) + _color(title, "1;33") + _color("─" * remaining, 33)
+    top = _color("╭──", 33) + title + _color("─" * remaining, 33)
     print(f"\n{top}")
 
 
@@ -1504,7 +1663,13 @@ def main() -> int:
     # Wire the same interactive confirmation callback into the global PermissionManager
     # so that terminal-mode tool confirmations (human-in-the-loop) can prompt the user.
     from zeus.security.permissions import PermissionManager, set_global_permission_manager
-    set_global_permission_manager(PermissionManager(confirm_callback=_ask_file_permission_prompt))
+    set_global_permission_manager(
+        PermissionManager(
+            confirm_callback=_ask_terminal_permission_prompt,
+            password_callback=_ask_sudo_password,
+            exec_level=os.getenv("ZEUS_EXECUTION_PERMISSION", "sandbox_only"),
+        )
+    )
 
     _print_banner(logger, metrics)
     active_skill: Optional[set] = None
@@ -1685,6 +1850,84 @@ def main() -> int:
                 tool_result_callback=_print_tool_result,
                 tool_filter=active_skill,
             )
+
+            # Handle sudo escalation requested by a tool (e.g. restart_sandbox).
+            if isinstance(response, dict) and response.get("sudo_required"):
+                sudo_res = _handle_sudo_required(response, session)
+                if sudo_res and sudo_res.get("success"):
+                    print(f"\n{_color('✅ Sudo executado. Retomando operação...', 32)}\n")
+                    pending = response.get("pending_input", text)
+                    response = run_agent(
+                        pending,
+                        session_id=logger.session_id,
+                        tool_callback=_print_tool_execution,
+                        tool_result_callback=_print_tool_result,
+                        tool_filter=active_skill,
+                    )
+                else:
+                    err_msg = (sudo_res or {}).get("error", "Sudo cancelled")
+                    response = f"Operação cancelada: {err_msg}"
+
+            # Handle SSH user requested by the ssh_run tool (plain text prompt).
+            if isinstance(response, dict) and response.get("ssh_user_required"):
+                ssh_req = response["ssh_user_required"]
+                host = ssh_req.get("host", "")
+                port = ssh_req.get("port", 22)
+                command = ssh_req.get("command", "")
+                print()
+                print(_color(" 👤 SSH USER REQUIRED / USUÁRIO SSH NECESSÁRIO ", "1;33"))
+                print(_color(f"  Host: {host} (port {port})", 90))
+                print(_color(f"  Command: {command}", 90))
+                try:
+                    ssh_user = session.prompt(ANSI(f"{_color('❓', 33)} Usuário SSH: "))
+                except (EOFError, KeyboardInterrupt):
+                    ssh_user = ""
+                ssh_user = ssh_user.strip()
+                if ssh_user:
+                    print(_color(f"Usuário {ssh_user} recebido. Reconectando...", "1;32"))
+                    from zeus.tools.ssh_run import ssh_run
+                    ssh_result = ssh_run(
+                        host=host,
+                        command=command,
+                        user=ssh_user,
+                        port=port,
+                    )
+                    print(_color("Resultado SSH:", "1;32"))
+                    print(json.dumps(ssh_result, indent=2, default=str))
+                    response = f"SSH result: {json.dumps(ssh_result, default=str)}"
+                else:
+                    response = "Operação cancelada: usuário SSH não fornecido."
+
+            # Handle SSH password requested by the ssh_run tool.
+            if isinstance(response, dict) and response.get("ssh_password_required"):
+                ssh_req = response["ssh_password_required"]
+                host = ssh_req.get("host", "")
+                user = ssh_req.get("user", "")
+                port = ssh_req.get("port", 22)
+                command = ssh_req.get("command", "")
+                target = f"{user}@{host}" if user else host
+                msg = (
+                    f"Host: {target} (port {port})\n"
+                    f"Command: {command}"
+                )
+                password = _ask_ssh_password(msg)
+                if password:
+                    print(_color("Senha recebida. Reconectando...", "1;32"))
+                    pending = response.get("pending_input", text)
+                    from zeus.tools.ssh_run import ssh_run
+                    ssh_result = ssh_run(
+                        host=host,
+                        command=command,
+                        user=user,
+                        port=port,
+                        password=password,
+                    )
+                    password = ""
+                    print(_color("Resultado SSH:", "1;32"))
+                    print(json.dumps(ssh_result, indent=2, default=str))
+                    response = f"SSH result: {json.dumps(ssh_result, default=str)}"
+                else:
+                    response = "Operação cancelada: senha SSH não fornecida."
 
             # Handle interactive permission confirmation if required
             while isinstance(response, dict) and response.get("permission_required"):
