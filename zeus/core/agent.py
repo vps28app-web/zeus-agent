@@ -251,9 +251,12 @@ def execute_tool_call(call: Dict[str, Any], metrics, tracer, confirm_callback=No
     # Human-in-the-loop confirmation for terminal mode
     if pm.is_confirmation_required(name, arguments):
         if not pm.confirm_tool(name, arguments):
-            msg = f"Execution of '{name}' was denied by user / execução negada pelo usuário."
+            msg = (
+                f"Execution of '{name}' was denied by user / execução negada pelo usuário. "
+                f"Stop and wait for the user's next instruction / pare e aguarde novas instruções."
+            )
             metrics.record_tool_call(name or "unknown", 0, error=True, result_summary=msg)
-            return {"tool": name, "error": msg}
+            return {"tool": name, "error": msg, "execution_denied": True}
 
     span = tracer.start_span("tool_call", {"tool": name, "arguments": arguments})
     start = time.time()
@@ -478,13 +481,23 @@ def run_agent(
 
                     err_msg = result.get("error") or (tool_res.get("error") if isinstance(tool_res, dict) else None)
                     if err_msg:
-                        messages.append({
-                            "role": "system",
-                            "content": (
-                                f"The tool '{fn_name}' returned an error: {err_msg}. "
-                                "Replan: try a different tool, adjust arguments, or ask the user for clarification."
-                            ),
-                        })
+                        if result.get("execution_denied"):
+                            messages.append({
+                                "role": "system",
+                                "content": (
+                                    f"The user explicitly DENIED execution of '{fn_name}'. "
+                                    "You must STOP immediately, do not try the same or equivalent "
+                                    "command through any other tool, and wait for the user's next message."
+                                ),
+                            })
+                        else:
+                            messages.append({
+                                "role": "system",
+                                "content": (
+                                    f"The tool '{fn_name}' returned an error: {err_msg}. "
+                                    "Replan: try a different tool, adjust arguments, or ask the user for clarification."
+                                ),
+                            })
 
                     # Check for repeated identical tool calls
                     if len(tool_call_history) >= 3 and tool_call_history[-3:] == [call_sig] * 3:
@@ -541,13 +554,23 @@ def run_agent(
 
                 err_msg = result.get("error") or (tool_res.get("error") if isinstance(tool_res, dict) else None)
                 if err_msg:
-                    messages.append({
-                        "role": "system",
-                        "content": (
-                            f"The tool '{fn_name}' failed with error: {err_msg}. "
-                            "Replan: try a different tool, adjust arguments, or ask the user for clarification."
-                        ),
-                    })
+                    if result.get("execution_denied"):
+                        messages.append({
+                            "role": "system",
+                            "content": (
+                                f"The user explicitly DENIED execution of '{fn_name}'. "
+                                "You must STOP immediately, do not try the same or equivalent "
+                                "command through any other tool, and wait for the user's next message."
+                            ),
+                        })
+                    else:
+                        messages.append({
+                            "role": "system",
+                            "content": (
+                                f"The tool '{fn_name}' failed with error: {err_msg}. "
+                                "Replan: try a different tool, adjust arguments, or ask the user for clarification."
+                            ),
+                        })
 
                 # Check for repeated identical tool calls
                 if len(tool_call_history) >= 3 and tool_call_history[-3:] == [call_sig] * 3:
