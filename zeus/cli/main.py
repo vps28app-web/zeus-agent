@@ -267,24 +267,38 @@ def _ask_terminal_permission_prompt(message: str) -> Any:
 
 
 def _ask_sudo_password(message: str) -> Optional[str]:
-    """Prompt for sudo password without echoing it to the terminal or logs."""
+    """Prompt for sudo password without echoing it to the terminal or logs.
+
+    Uses prompt_toolkit's password mode so input stays hidden inside the
+    active CLI session (getpass conflicts with prompt_toolkit's terminal
+    control and may leak typed characters).
+    """
     print()
     print(_color(" 🔐 SUDO REQUIRED / SUDO NECESSÁRIO ", "1;33"))
     print(_color(message, 90))
     try:
-        password = getpass.getpass(_color("Senha sudo: ", "1;33"))
+        password = active_session.prompt(
+            ANSI(f"{_color('❓', 33)} {_color('Senha sudo:', '1;33')} "),
+            is_password=True,
+        )
     except (EOFError, KeyboardInterrupt):
         return None
     return password if password else None
 
 
 def _ask_ssh_password(message: str) -> Optional[str]:
-    """Prompt for SSH password without echoing it to the terminal or logs."""
+    """Prompt for SSH password without echoing it to the terminal or logs.
+
+    Uses prompt_toolkit's password mode for the same reason as sudo above.
+    """
     print()
     print(_color(" 🔑 SSH PASSWORD REQUIRED / SENHA SSH NECESSÁRIA ", "1;33"))
     print(_color(message, 90))
     try:
-        password = getpass.getpass(_color("Senha SSH: ", "1;33"))
+        password = active_session.prompt(
+            ANSI(f"{_color('❓', 33)} {_color('Senha SSH:', '1;33')} "),
+            is_password=True,
+        )
     except (EOFError, KeyboardInterrupt):
         return None
     return password if password else None
