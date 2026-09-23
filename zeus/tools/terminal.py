@@ -168,18 +168,40 @@ def run_background_command(command: str, cwd: Optional[str] = None) -> Dict[str,
         if not Path(working_dir).exists():
             return {"error": f"Working directory does not exist: {cwd}"}
 
+    # Handle sudo: rewrite to `sudo -S` and feed the password on stdin so the
+    # command does not fail with "a password is required" when run non-interactively.
+    run_command = command
+    password: Optional[str] = None
+    if _needs_sudo(command):
+        password = pm.ask_password(
+            f"O comando requer sudo:\n  {command}",
+            cache_key="sudo",
+        )
+        if password is None:
+            return {"error": "Sudo password not provided / senha sudo não fornecida."}
+        run_command = _SUDO_RE.sub(r"\1sudo -S", command, count=1)
+
     cmd_id = f"cmd_{uuid.uuid4().hex[:8]}"
-    proc = subprocess.Popen(
-        command,
-        shell=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        bufsize=1,
-        cwd=working_dir,
-        env=safe_environment(),
-        start_new_session=True,
-    )
+    popen_kwargs: Dict[str, Any] = {
+        "shell": True,
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.PIPE,
+        "text": True,
+        "bufsize": 1,
+        "cwd": working_dir,
+        "env": safe_environment(),
+        "start_new_session": True,
+    }
+    if password is not None:
+        popen_kwargs["stdin"] = subprocess.PIPE
+    proc = subprocess.Popen(run_command, **popen_kwargs)
+    if password is not None and proc.stdin is not None:
+        try:
+            proc.stdin.write(password + "\n")
+            proc.stdin.flush()
+        finally:
+            proc.stdin.close()
+            password = None
 
     _background_processes[cmd_id] = {
         "command": command,
