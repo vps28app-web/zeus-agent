@@ -4,16 +4,27 @@ import fcntl
 import os
 import re
 import subprocess
+import threading
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 from zeus.core.registry import register_tool
 from zeus.security.permissions import get_global_permission_manager
 from zeus.tools.sandbox_client import safe_environment
 
 _background_processes: Dict[str, Dict[str, Any]] = {}
+
+# Optional live-output callback, registered by the CLI so the user can watch
+# command output in real time instead of waiting for the process to finish.
+_stream_callback: Optional[Callable[[str, str], None]] = None
+
+
+def set_stream_callback(callback: Optional[Callable[[str, str], None]]) -> None:
+    """Register a callback(chunk, stream) invoked as command output arrives."""
+    global _stream_callback
+    _stream_callback = callback
 
 
 def _permissions():
@@ -29,62 +40,113 @@ def _needs_sudo(command: str) -> bool:
     return bool(_SUDO_RE.search(command))
 
 
+def _read_stream(stream, stream_name: str, chunks: Dict[str, str], lock: threading.Lock) -> None:
+    """Read a process stream line by line, feeding live output and buffering."""
+    try:
+        for raw in iter(stream.readline, ""):
+            if not raw:
+                break
+            with lock:
+                chunks[stream_name] += raw
+            if _stream_callback:
+                try:
+                    _stream_callback(raw.rstrip("\n"), stream_name)
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    finally:
+        try:
+            stream.close()
+        except Exception:
+            pass
+
+
 def _run_with_optional_sudo(command: str, timeout: int, cwd, pm) -> Dict[str, Any]:
     """Run a shell command, prompting for sudo password if the command needs it.
 
     The password is read via the secure callback (never echoed), passed to
     `sudo -S` on stdin, and dropped from memory immediately after use.
+    Output is streamed live via the stream callback (when registered) so the
+    user can tell the command is progressing, not stuck.
     """
     env = safe_environment()
-    if not _needs_sudo(command):
-        result = subprocess.run(  # nosec B602
-            command,
-            shell=True,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            cwd=cwd,
-            env=env,
+    needs_sudo = _needs_sudo(command)
+
+    run_command = command
+    password: Optional[str] = None
+    if needs_sudo:
+        # Ask for the password securely (cached for the session).
+        password = pm.ask_password(
+            f"O comando requer sudo:\n  {command}",
+            cache_key="sudo",
         )
-        return {
-            "exit_code": result.returncode,
-            "stdout": result.stdout[:8000],
-            "stderr": result.stderr[:4000],
-        }
+        if password is None:
+            return {
+                "exit_code": 1,
+                "stdout": "",
+                "stderr": "Sudo password not provided / senha sudo não fornecida.",
+            }
+        # Replace first `sudo` with `sudo -S` so it reads the password from stdin.
+        run_command = _SUDO_RE.sub(r"\1sudo -S", command, count=1)
 
-    # Command needs sudo. Ask for the password securely (cached for the session).
-    password = pm.ask_password(
-        f"O comando requer sudo:\n  {command}",
-        cache_key="sudo",
-    )
-    if password is None:
-        return {
-            "exit_code": 1,
-            "stdout": "",
-            "stderr": "Sudo password not provided / senha sudo não fornecida.",
-        }
-
-    # Replace first `sudo` with `sudo -S` so it reads the password from stdin.
-    sudo_command = _SUDO_RE.sub(r"\1sudo -S", command, count=1)
     try:
-        result = subprocess.run(  # nosec B602
-            sudo_command,
-            shell=True,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            cwd=cwd,
-            env=env,
-            input=password + "\n",
-        )
-        return {
-            "exit_code": result.returncode,
-            "stdout": result.stdout[:8000],
-            "stderr": result.stderr[:4000],
+        popen_kwargs: Dict[str, Any] = {
+            "shell": True,
+            "stdout": subprocess.PIPE,
+            "stderr": subprocess.PIPE,
+            "text": True,
+            "bufsize": 1,
+            "cwd": cwd,
+            "env": env,
         }
-    finally:
-        # Drop the password reference as soon as the subprocess returns.
-        password = None
+        if password is not None:
+            popen_kwargs["stdin"] = subprocess.PIPE
+        proc = subprocess.Popen(run_command, **popen_kwargs)  # nosec B602
+    except Exception as e:
+        return {"exit_code": 1, "stdout": "", "stderr": f"Failed to start command: {e}"}
+
+    if password is not None and proc.stdin is not None:
+        try:
+            proc.stdin.write(password + "\n")
+            proc.stdin.flush()
+            proc.stdin.close()
+        finally:
+            password = None
+
+    chunks: Dict[str, str] = {"stdout": "", "stderr": ""}
+    lock = threading.Lock()
+    threads = []
+    for stream, name in ((proc.stdout, "stdout"), (proc.stderr, "stderr")):
+        if stream is not None:
+            t = threading.Thread(target=_read_stream, args=(stream, name, chunks, lock), daemon=True)
+            t.start()
+            threads.append(t)
+
+    try:
+        proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            pass
+        for t in threads:
+            t.join(timeout=1)
+        return {
+            "exit_code": 124,
+            "stdout": chunks["stdout"][:8000],
+            "stderr": (chunks["stderr"] + f"\n[timeout após {timeout}s / timed out after {timeout}s]")[:4000],
+        }
+
+    for t in threads:
+        t.join(timeout=2)
+
+    return {
+        "exit_code": proc.returncode,
+        "stdout": chunks["stdout"][:8000],
+        "stderr": chunks["stderr"][:4000],
+    }
 
 
 def run_terminal(command: str, timeout: int = 60, cwd: Optional[str] = None) -> Dict[str, Any]:

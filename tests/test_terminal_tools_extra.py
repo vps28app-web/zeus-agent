@@ -1,6 +1,6 @@
 """Additional unit tests for zeus/tools/terminal.py."""
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from zeus.security.permissions import PermissionManager, set_global_permission_manager
 from zeus.tools import terminal
@@ -46,13 +46,19 @@ def test_run_terminal_any_command_authorized_executes():
             mock_limiter.return_value.is_allowed.return_value = True
             pm = PermissionManager(exec_level="allow", confirm_callback=lambda msg: "yes")
             _set_pm(pm)
-            with patch("subprocess.run") as mock_run:
-                mock_run.return_value.returncode = 0
-                mock_run.return_value.stdout = ""
-                mock_run.return_value.stderr = ""
+            with patch("subprocess.Popen") as mock_popen:
+                mock_proc = MagicMock()
+                mock_proc.returncode = 0
+                mock_proc.wait.return_value = 0
+                mock_proc.stdin = MagicMock()
+                mock_proc.stdout = MagicMock()
+                mock_proc.stdout.readline.side_effect = [""]
+                mock_proc.stderr = MagicMock()
+                mock_proc.stderr.readline.side_effect = [""]
+                mock_popen.return_value = mock_proc
                 result = terminal.run_terminal("rm -rf /")
     assert result["exit_code"] == 0
-    mock_run.assert_called_once()
+    mock_popen.assert_called_once()
 
 
 def test_run_terminal_auto_mode_skips_confirmation():
@@ -61,13 +67,19 @@ def test_run_terminal_auto_mode_skips_confirmation():
             mock_limiter.return_value.is_allowed.return_value = True
             with patch.dict("os.environ", {"ZEUS_EXECUTION_MODE": "auto"}, clear=False):
                 _set_pm(PermissionManager(exec_level="allow"))
-                with patch("subprocess.run") as mock_run:
-                    mock_run.return_value.returncode = 0
-                    mock_run.return_value.stdout = ""
-                    mock_run.return_value.stderr = ""
+                with patch("subprocess.Popen") as mock_popen:
+                    mock_proc = MagicMock()
+                    mock_proc.returncode = 0
+                    mock_proc.wait.return_value = 0
+                    mock_proc.stdin = MagicMock()
+                    mock_proc.stdout = MagicMock()
+                    mock_proc.stdout.readline.side_effect = [""]
+                    mock_proc.stderr = MagicMock()
+                    mock_proc.stderr.readline.side_effect = [""]
+                    mock_popen.return_value = mock_proc
                     result = terminal.run_terminal("rm -rf /")
     assert result["exit_code"] == 0
-    mock_run.assert_called_once()
+    mock_popen.assert_called_once()
 
 
 def test_run_terminal_cwd_missing():

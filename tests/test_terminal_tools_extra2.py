@@ -26,10 +26,16 @@ def test_run_terminal_no_longer_blocked_by_pattern():
         with mock.patch("zeus.tools.sandbox_client.current_user_session", return_value=("u1", "s1")):
             mock_limiter.return_value.is_allowed.return_value = True
             _set_pm(PermissionManager(exec_level="allow"))
-            with mock.patch("subprocess.run") as mock_run:
-                mock_run.return_value.returncode = 0
-                mock_run.return_value.stdout = ""
-                mock_run.return_value.stderr = ""
+            with mock.patch("subprocess.Popen") as mock_popen:
+                mock_proc = mock.MagicMock()
+                mock_proc.returncode = 0
+                mock_proc.wait.return_value = 0
+                mock_proc.stdin = mock.MagicMock()
+                mock_proc.stdout = mock.MagicMock()
+                mock_proc.stdout.readline.side_effect = [""]
+                mock_proc.stderr = mock.MagicMock()
+                mock_proc.stderr.readline.side_effect = [""]
+                mock_popen.return_value = mock_proc
                 result = terminal.run_terminal("rm -rf /")
     assert result["exit_code"] == 0
 

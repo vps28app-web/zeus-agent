@@ -1424,6 +1424,20 @@ def _print_tool_execution(name: Optional[str], args: Any) -> None:
     print(f"  {_color('⚡ Executando:', 35)} {_color(tool_name, '1;35')}({_color(args_str, 90)})")
 
 
+def _print_live_output(chunk: str, stream: str) -> None:
+    """Print a chunk of live command output as it arrives.
+
+    stdout is printed in default color; stderr is tinted red so the user can
+    tell normal output from errors while a command runs.
+    """
+    if not chunk:
+        return
+    if stream == "stderr":
+        print(f"  {_color(chunk, 31)}")
+    else:
+        print(f"  {chunk}")
+
+
 def _print_tool_result(name: Optional[str], args: Any, result: Dict[str, Any]) -> None:
     """Print detailed visual output for file creation (code) and file edits (line diffs)."""
     if not isinstance(result, dict):
@@ -1668,6 +1682,11 @@ def main() -> int:
     # Connect interactive file permission callback.
     from zeus.tools.file import set_file_permission_callback
     set_file_permission_callback(_ask_file_permission_prompt)
+
+    # Stream live terminal output so the user can see command progress instead
+    # of waiting blindly for a long command (e.g. apt upgrade) to finish.
+    from zeus.tools.terminal import set_stream_callback
+    set_stream_callback(_print_live_output)
 
     # Wire the same interactive confirmation callback into the global PermissionManager
     # so that terminal-mode tool confirmations (human-in-the-loop) can prompt the user.
