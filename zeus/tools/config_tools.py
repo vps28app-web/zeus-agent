@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from zeus.config.settings import config_path, load_config, save_config
 from zeus.core.registry import register_tool
 
 
@@ -40,6 +41,25 @@ def _upsert_env(key: str, value: str) -> None:
         os.environ["GEMINI_API_KEY"] = value
 
 
+def _is_config_yaml_key(key: str) -> bool:
+    """Keys that belong to config.yaml instead of .env."""
+    return key.lower() in {"max_turns"}
+
+
+def _update_config_yaml(key: str, value: str) -> Dict[str, Any]:
+    config = load_config()
+    config_key = key.lower()
+    if config_key == "max_turns":
+        try:
+            config["max_turns"] = int(value)
+        except ValueError:
+            return {"error": f"Valor inválido para max_turns: {value!r}. Deve ser um inteiro."}
+    else:
+        config[config_key] = value
+    save_config(config)
+    return {"status": "success", "key": config_key, "value": str(config[config_key])}
+
+
 def get_zeus_config() -> Dict[str, Any]:
     """Retrieve the current Zeus LLM provider, model, and API keys status."""
     keys_to_check = [
@@ -65,17 +85,30 @@ def get_zeus_config() -> Dict[str, Any]:
     return {
         "zeus_provider": os.getenv("ZEUS_PROVIDER", "openrouter"),
         "zeus_model": os.getenv("ZEUS_MODEL", "openrouter/auto"),
+        "max_turns": load_config().get("max_turns", 20),
         "api_keys_status": status,
-        "config_file": str(_get_env_path()),
+        "config_file": str(config_path()),
+        "env_file": str(_get_env_path()),
     }
 
 
 def update_zeus_config(key: str, value: str) -> Dict[str, Any]:
-    """Update a configuration key or API key in Zeus settings (.env)."""
+    """Update a configuration key or API key in Zeus settings (.env or config.yaml)."""
     key_clean = key.strip().upper()
     val_clean = value.strip()
     if not key_clean:
         return {"error": "Key name cannot be empty"}
+
+    if _is_config_yaml_key(key_clean):
+        result = _update_config_yaml(key_clean, val_clean)
+        if "error" in result:
+            return result
+        return {
+            "status": "success",
+            "message": f"Configuração '{key_clean}' atualizada em {config_path()}.",
+            "key": result["key"],
+            "new_value_masked": str(result["value"]),
+        }
 
     _upsert_env(key_clean, val_clean)
     return {
@@ -289,11 +322,11 @@ register_tool(
 
 register_tool(
     name="update_zeus_config",
-    description="Atualiza uma variável de configuração ou chave de API no arquivo .env do Zeus e em memória (ex: GEMINI_API_KEY, ZEUS_MODEL, ZEUS_PROVIDER).",
+    description="Atualiza uma variável de configuração ou chave de API no arquivo .env do Zeus e em memória (ex: GEMINI_API_KEY, ZEUS_MODEL, ZEUS_PROVIDER). Configurações do Zeus como max_turns são salvas no config.yaml.",
     parameters={
         "type": "object",
         "properties": {
-            "key": {"type": "string", "description": "Nome da variável de ambiente (ex: GEMINI_API_KEY, ZEUS_MODEL, ZEUS_PROVIDER)"},
+            "key": {"type": "string", "description": "Nome da variável de ambiente ou config (ex: GEMINI_API_KEY, ZEUS_MODEL, ZEUS_PROVIDER, max_turns)"},
             "value": {"type": "string", "description": "Valor da chave de API ou configuração"},
         },
         "required": ["key", "value"],

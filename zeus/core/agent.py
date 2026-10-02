@@ -6,6 +6,7 @@ import time
 import traceback
 from typing import Any, Dict, List, Optional
 
+from zeus.config.settings import load_config
 from zeus.core.registry import REGISTRY
 from zeus.core.router import chat
 from zeus.core.schemas import AgentDecision, PlanOutput, ToolCallDecision
@@ -332,7 +333,7 @@ def run_agent(
     session_id: Optional[str] = None,
     user_id: Optional[str] = None,
     platform: Optional[str] = None,
-    max_turns: int = 20,
+    max_turns: Optional[int] = None,
     stream: bool = False,
     stream_callback=None,
     tool_callback=None,
@@ -340,6 +341,11 @@ def run_agent(
     enable_reasoning_memory: bool = True,
     tool_filter: Optional[set] = None,
 ) -> Any:
+    if max_turns is None:
+        try:
+            max_turns = int(load_config().get("max_turns", 20))
+        except Exception:
+            max_turns = 20
     metrics = get_metrics(session_id)
     tracer = get_tracer(session_id)
     tracer.start_span("run_agent", {"user_input": user_input, "tool_filter": sorted(tool_filter) if tool_filter else None})

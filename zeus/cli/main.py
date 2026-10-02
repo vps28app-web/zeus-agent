@@ -792,6 +792,7 @@ def _print_command_menu() -> None:
         ("/brain", "Dashboard de inteligência e aprendizado contínuo"),
         ("/provider", "Troca o provedor e modelo LLM"),
         ("/mode <sandbox|terminal|auto|dryrun|readonly>", "Alterna modo de execução e segurança"),
+        ("/mode file <read_only|project_only|unrestricted>", "Define permissão de arquivo"),
         ("/mode status", "Mostra apenas o status atual do agente"),
         ("/plan <tarefa>", "Cria e executa um plano passo a passo"),
         ("/plan bmad <ideia>", "Análise BMAD de modelo de negócio"),
@@ -1075,6 +1076,7 @@ def _print_config_menu(config: Dict[str, Any]) -> None:
     print(top)
     print(f"{_color('│', 33)}  {_color('Provider:', 90)} {config.get('zeus_provider', 'unknown')}")
     print(f"{_color('│', 33)}  {_color('Model:', 90)}    {config.get('zeus_model', 'unknown')}")
+    print(f"{_color('│', 33)}  {_color('Max turns:', 90)} {config.get('max_turns', 'unknown')}")
     print(f"{_color('│', 33)}  {_color('Config file:', 90)} {config.get('config_file', 'unknown')}")
     print(f"{_color('│', 33)}")
     print(f"{_color('│', 33)}  {_color('API Keys:', 90)}")
@@ -1084,7 +1086,8 @@ def _print_config_menu(config: Dict[str, Any]) -> None:
     print(f"{_color('│', 33)}  {_color('Comandos:', 90)}")
     print(f"{_color('│', 33)}    • {_color('/config', 33)}                  - Mostra configuração atual")
     print(f"{_color('│', 33)}    • {_color('/config get <key>', 33)}      - Lê valor de uma variável")
-    print(f"{_color('│', 33)}    • {_color('/config set <key> <value>', 33)} - Define variável no .env")
+    print(f"{_color('│', 33)}    • {_color('/config set <key> <value>', 33)} - Define variável no .env ou config.yaml")
+    print(f"{_color('│', 33)}    • {_color('/config set max_turns <n>', 33)} - Define limite de turnos do agente")
     print(f"{_color('│', 33)}    • {_color('/config list-models [provider]', 33)} - Lista modelos disponíveis")
     print(bottom)
     print()
@@ -1672,6 +1675,15 @@ def main() -> int:
             print(run_summary(session_id=logger.session_id))
         return 0
 
+    # Pre-load max_turns from config.yaml so interactive sessions respect it.
+    from zeus.config.settings import load_config as _load_config
+    _config_max_turns = _load_config().get("max_turns")
+    if _config_max_turns is not None:
+        try:
+            _config_max_turns = int(_config_max_turns)
+        except Exception:
+            _config_max_turns = None
+
     session = PromptSession(
         history=FileHistory(".zeus_history"),
         completer=ZeusCommandCompleter(),
@@ -1874,6 +1886,7 @@ def main() -> int:
             response = run_agent(
                 text,
                 session_id=logger.session_id,
+                max_turns=_config_max_turns,
                 tool_callback=_print_tool_execution,
                 tool_result_callback=_print_tool_result,
                 tool_filter=active_skill,
@@ -1888,6 +1901,7 @@ def main() -> int:
                     response = run_agent(
                         pending,
                         session_id=logger.session_id,
+                        max_turns=_config_max_turns,
                         tool_callback=_print_tool_execution,
                         tool_result_callback=_print_tool_result,
                         tool_filter=active_skill,
@@ -1977,6 +1991,7 @@ def main() -> int:
                     response = run_agent(
                         pending,
                         session_id=logger.session_id,
+                        max_turns=_config_max_turns,
                         tool_callback=_print_tool_execution,
                         tool_result_callback=_print_tool_result,
                         tool_filter=active_skill,
