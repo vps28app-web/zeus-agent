@@ -22,7 +22,7 @@ go build -buildvcs=false ./cmd/sandbox
 
 ## Executar
 
-O modo hardening completo (chroot, mount namespace, network namespace, cgroups) requer privilégios de root.
+Privilégios de root são obrigatórios para executar comandos. Sem root, o servidor pode iniciar e responder a `GET /health`, mas recusa `POST /run`; executar payloads no host sem chroot não é considerado um modo sandbox seguro.
 
 ### Opção 1: com sudo (hardening completo)
 
@@ -35,15 +35,6 @@ Para rodar sem digitar senha, crie `/etc/sudoers.d/zeus-sandbox`:
 ```sudoers
 vps28 ALL=(root) NOPASSWD: /home/vps28/Documentos/Dev/Zeus/sandbox/sandbox
 ```
-
-### Opção 2: sem root (isolamento parcial)
-
-Sem root o servidor funciona, mas o chroot e o mount namespace privado falham. Ainda há:
-
-- diretório de trabalho temporário
-- ambiente limpo
-- timeout
-- limitação via cgroups (se disponível e permissível)
 
 ## Endpoints
 
@@ -68,20 +59,20 @@ python -m zeus.cli -q "execute run_sandboxed with command 'echo hello from sandb
 
 ## Testes validados
 
-- `echo hello && whoami && pwd && ls /` — executa dentro do chroot como root.
+- `echo hello && whoami && pwd && ls /` — executa dentro do chroot; o payload roda como `nobody`.
 - `curl http://example.com` — bloqueado (sem rede).
 - `rm -rf /tmp/...` — executa dentro do tmpfs isolado.
 - `cat /etc/passwd` — vê apenas a cópia read-only dentro do chroot.
 
 ## Notas de segurança
 
-- A sandbox não é uma barreira absoluta, mas reduz bastante a superfície de ataque.
-- Comandos dentro do chroot rodam como root — ainda há risco de kernel exploits.
-- Para uso em produção, considere usuário não-root dentro do container ou VM.
+- Root é obrigatório para executar; sem root, `POST /run` é recusado.
+- A allowlist usa AST shell para validar cada comando explícito em pipes/listas e rejeita nomes dinâmicos e caminhos de executáveis.
+- A allowlist é uma camada adicional: binários permitidos ainda podem iniciar subprocessos; chroot/namespaces/seccomp são a fronteira principal.
+- O payload roda como `nobody` no chroot. Ainda existe risco de vulnerabilidade do kernel; a sandbox não é uma barreira absoluta.
 
 ## Próximos passos
 
-1. Rodar o comando final dentro do chroot como usuário não-root.
-2. Adicionar seccomp-bpf para bloquear syscalls perigosas.
-3. Suporte a upload/download de arquivos na sandbox.
-4. Empacotar como serviço systemd.
+1. Tornar a instalação de seccomp obrigatória (hoje uma falha é registrada e a execução continua).
+2. Suporte a upload/download de arquivos na sandbox.
+3. Empacotar como serviço systemd.

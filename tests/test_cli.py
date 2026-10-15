@@ -3,10 +3,26 @@
 import io
 from contextlib import redirect_stdout
 
-from zeus.cli.main import SKILL_SETS, _format_tokens, _print_command_menu, _print_skills_menu
+from zeus.cli.main import (
+    SKILL_SETS,
+    ZeusCommandCompleter,
+    _format_tokens,
+    _print_command_menu,
+    _print_skills_menu,
+)
 
 
-def test_print_command_menu_shows_slash_commands():
+def test_print_command_menu_shows_models_command():
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        _print_command_menu()
+    output = buf.getvalue()
+    assert "/models" in output
+    assert "/provider" not in output
+    assert "/models" in ZeusCommandCompleter.COMMANDS
+    assert "/provider" not in ZeusCommandCompleter.COMMANDS
+
+
     buf = io.StringIO()
     with redirect_stdout(buf):
         _print_command_menu()
@@ -51,7 +67,6 @@ def test_format_tokens():
 
 def test_context_bar_colors_and_clamping(monkeypatch, tmp_path):
     from zeus.cli.main import _context_bar
-    from zeus.memory.session_log import get_session_messages
 
     monkeypatch.delenv("ZEUS_MAX_CONTEXT_TOKENS", raising=False)
     # empty session => only system estimate (1500 / 8000 = 18%)

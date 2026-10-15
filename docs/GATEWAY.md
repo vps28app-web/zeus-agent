@@ -81,9 +81,52 @@ ZEUS_DISCORD_ALLOWED_USER_IDS=123456789
 python -m zeus.gateway --platform discord
 ```
 
+## Instagram Messaging
+
+A integração usa a API oficial de mensagens da Meta para contas Instagram Profissionais. Ela recebe DMs por webhook HTTPS e só responde a conversas iniciadas pelo usuário; as respostas estão sujeitas à janela de atendimento da Meta.
+
+Pré-requisitos no Meta for Developers:
+
+- Conta Instagram Profissional e app Meta publicado.
+- Permissão `instagram_business_manage_messages` (ou a permissão exigida pelo fluxo de login escolhido) e assinatura do webhook `messages`.
+- Instagram Account ID, access token, App Secret e um verify token definido por você.
+- URL HTTPS pública apontando para `/webhook`; um reverse proxy/túnel deve encaminhá-la para a porta local 8765.
+
+Documentação oficial: [Instagram Messaging API](https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-instagram-login/messaging-api) e [Webhooks](https://developers.facebook.com/docs/messenger-platform/instagram/features/webhook/).
+
+Configure os dados localmente, com os segredos digitados em prompts mascarados:
+
+```bash
+zeus gateway setup instagram
+zeus gateway start instagram
+# ou instalar como serviço systemd do usuário:
+zeus gateway start instagram --mode systemd
+```
+
+Não envie tokens ou App Secret por DM. O bot só recebe `!zeus` depois que um gateway já estiver configurado. Comandos disponíveis:
+
+```text
+!zeus
+!zeus status
+!zeus provider <nome> [modelo]
+!zeus model <id>
+!zeus setup
+```
+
+`!zeus setup` mostra como abrir `zeus setup` no terminal. Chaves nunca são configuradas por mensagem; faça isso em prompts locais mascarados.
+
 ## Setup interativo
 
-O CLI de gateway também oferece setup guiado:
+O assistente de primeira configuração pode preparar provedor/modelo e várias integrações:
+
+```bash
+zeus setup
+# selecione, por exemplo: whatsapp, instagram
+```
+
+O WhatsApp ainda exige a ponte Baileys e o pareamento do QR code; o Instagram exige a URL HTTPS pública e o app Meta configurado.
+
+O CLI de gateway também oferece setup guiado por plataforma:
 
 ```bash
 python -m zeus.gateway setup telegram

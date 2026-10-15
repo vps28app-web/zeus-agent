@@ -52,6 +52,7 @@ echo "  sudo systemctl start zeus-telegram-gateway.service"
 echo "  sudo systemctl start zeus-discord-gateway.service"
 echo "  sudo systemctl start zeus-whatsapp-bridge.service"
 echo "  sudo systemctl start zeus-whatsapp-gateway.service"
+
 echo ""
 echo "Check logs with:"
 echo "  journalctl -u zeus-telegram-gateway.service -f"

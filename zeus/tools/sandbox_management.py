@@ -1,7 +1,6 @@
 """Sandbox lifecycle management: restart the Go sandbox server when needed."""
 
 import os
-import shutil
 import signal
 import subprocess
 import time

@@ -165,6 +165,8 @@ def find_symbol(name: str, path: str = ".") -> Dict[str, Any]:
         for file_path in dir_path.rglob("*.py"):
             if not file_path.is_file():
                 continue
+            if not _permissions.can_read_file(file_path):
+                continue
             parts = file_path.parts
             if any(p in (".git", "__pycache__", ".venv", "node_modules", ".pytest_cache") for p in parts):
                 continue

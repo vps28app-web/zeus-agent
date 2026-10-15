@@ -112,6 +112,12 @@ class WhatsAppGateway:
         if self._confirmations.answer("whatsapp", user_id, text):
             return
 
+        from zeus.gateway.commands import handle_zeus_command
+        admin_response = handle_zeus_command(text)
+        if admin_response is not None:
+            self.send_message(from_jid, admin_response)
+            return
+
         # Handle pending input resumption.
         if user_id in self._pending_inputs:
             original_input = self._pending_inputs.pop(user_id)

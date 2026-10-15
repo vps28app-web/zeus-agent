@@ -32,7 +32,7 @@ class ZeusCommandCompleter(Completer):
         "/config": "Gerencia configurações do Zeus",
         "/learn": "Aprendizados passados: /learn list, /learn search <query>, /learn add <p> | <s>",
         "/brain": "Dashboard de inteligência e aprendizado contínuo",
-        "/provider": "Troca o provedor e modelo LLM",
+        "/models": "Troca o provedor e modelo LLM",
         "/mode": "Alterna entre sandbox, terminal, auto, dryrun e readonly",
         "/plan": "Cria e executa um plano passo a passo (use /plan bmad <ideia> para análise de modelo de negócio)",
         "/team": "Executa com equipe multi-agente",
@@ -496,7 +496,7 @@ def _format_command_lines(inner_width: int) -> List[str]:
     """Format the slash-command list into two balanced lines inside the banner."""
     prefix = "  Comandos:"
     prefix_width = _visible_width(prefix)
-    commands = ["/new", "/reset", "/clear", "/skills", "/provider", "/mode", "/summary", "/help", "/exit"]
+    commands = ["/new", "/reset", "/clear", "/skills", "/models", "/mode", "/summary", "/help", "/exit"]
 
     # Try to split into two balanced groups
     mid = (len(commands) + 1) // 2
@@ -790,7 +790,7 @@ def _print_command_menu() -> None:
         ("/config", "Gerencia configurações do Zeus (get/set/list)"),
         ("/learn", "Aprendizados passados (list/search/add/stats/forget)"),
         ("/brain", "Dashboard de inteligência e aprendizado contínuo"),
-        ("/provider", "Troca o provedor e modelo LLM"),
+        ("/models", "Troca o provedor e modelo LLM"),
         ("/mode <sandbox|terminal|auto|dryrun|readonly>", "Alterna modo de execução e segurança"),
         ("/mode file <read_only|project_only|unrestricted>", "Define permissão de arquivo"),
         ("/mode status", "Mostra apenas o status atual do agente"),
@@ -1086,7 +1086,8 @@ def _print_config_menu(config: Dict[str, Any]) -> None:
     print(f"{_color('│', 33)}  {_color('Comandos:', 90)}")
     print(f"{_color('│', 33)}    • {_color('/config', 33)}                  - Mostra configuração atual")
     print(f"{_color('│', 33)}    • {_color('/config get <key>', 33)}      - Lê valor de uma variável")
-    print(f"{_color('│', 33)}    • {_color('/config set <key> <value>', 33)} - Define variável no .env ou config.yaml")
+    print(f"{_color('│', 33)}    • {_color('/config set <key> <value>', 33)} - Define variável não secreta no .env ou config.yaml")
+    print(f"{_color('│', 33)}    • {_color('/config set OPENCODE_GO_API_KEY', 33)} - Define/troca a chave via prompt mascarado")
     print(f"{_color('│', 33)}    • {_color('/config set max_turns <n>', 33)} - Define limite de turnos do agente")
     print(f"{_color('│', 33)}    • {_color('/config list-models [provider]', 33)} - Lista modelos disponíveis")
     print(bottom)
@@ -1301,10 +1302,33 @@ def _handle_config_command(text: str) -> None:
             _print_config_menu(get_zeus_config())
 
     elif subcmd in ("set", "update"):
-        if len(parts) < 3 or " " not in parts[2]:
+        if len(parts) < 3:
             print(f"\n{_color('❌ Uso:', '1;31')} /config set <KEY> <value>\n")
             return
-        key, value = parts[2].split(" ", 1)
+        values = parts[2].split(maxsplit=1)
+        key = values[0].strip().upper()
+        is_secret = any(
+            token in key
+            for token in ("TOKEN", "KEY", "SECRET", "PASSWORD", "API_KEY", "CREDENTIAL")
+        )
+        if len(values) == 1:
+            if not is_secret:
+                print(f"\n{_color('❌ Uso:', '1;31')} /config set <KEY> <value>\n")
+                return
+            from zeus.cli.setup_commands import _get_input
+            value = _get_input(f"{key} (entrada mascarada)", secret=True)
+            if not value:
+                print(f"\n{_color('Configuração cancelada.', 33)}\n")
+                return
+        else:
+            if is_secret:
+                print(
+                    f"\n{_color('Por segurança:', 33)} use /config set {key} sem informar o valor; "
+                    "a próxima entrada será mascarada.\n"
+                )
+                return
+            value = values[1]
+
         result = update_zeus_config(key, value)
         if result.get("status") == "success":
             print(f"\n{_color('✅ Configuração salva:', 32)} {result['key']} = {result['new_value_masked']}\n")
@@ -1635,7 +1659,7 @@ def main() -> int:
     parser.add_argument("--session", help="Session ID for logging")
     parser.add_argument("--summary", action="store_true", help="Print session summary after query")
     parser.add_argument("--team", action="store_true", help="Use multi-agent team orchestration")
-    parser.add_argument("command", nargs="?", choices=["setup-model", "gateway"], help="Top-level commands (setup-model, gateway)")
+    parser.add_argument("command", nargs="?", choices=["setup", "setup-model", "gateway"], help="Top-level commands (setup, setup-model, gateway)")
     parser.add_argument("gateway_args", nargs=argparse.REMAINDER, help="Gateway subcommand arguments")
     args = parser.parse_args()
 
@@ -1644,14 +1668,22 @@ def main() -> int:
         _COLOR_ENABLED = False
 
     if args.command == "gateway" or args.gateway_args:
+        os.environ.pop("ZEUS_LOCAL_CLI", None)
         from zeus.gateway.cli import main as gateway_main
         sys.argv = ["zeus-gateway"] + (args.gateway_args if args.command == "gateway" else args.gateway_args[1:])
         gateway_main()
         return 0
 
+    if args.command == "setup":
+        from zeus.cli.onboarding import run_setup_wizard
+        return 0 if run_setup_wizard() else 1
+
     if args.command == "setup-model":
         from zeus.cli.setup_commands import setup_model
         return 0 if setup_model() else 1
+
+    # Expose workspace switching only to local CLI agent sessions, never gateways.
+    os.environ["ZEUS_LOCAL_CLI"] = "1"
 
     logger = get_logger(args.session)
     metrics = get_metrics(logger.session_id)
@@ -1685,7 +1717,7 @@ def main() -> int:
             _config_max_turns = None
 
     session = PromptSession(
-        history=FileHistory(".zeus_history"),
+        history=FileHistory(str(Path.cwd() / ".zeus_history")),
         completer=ZeusCommandCompleter(),
     )
     global active_session
@@ -1806,13 +1838,10 @@ def main() -> int:
             print(f"{_color('Ferramentas disponíveis:', 90)} {count}\n")
             continue
 
-        if text == "/provider":
+        if text in ("/models", "/provider"):
             from zeus.cli.setup_commands import setup_model
             setup_model()
             _load_env(override=True)
-            continue
-        if text == "/models":
-            print(f"\n{_color('Comando /models foi renomeado para /provider.', '1;33')}\n")
             continue
 
         if text == "/mode" or text.startswith("/mode "):

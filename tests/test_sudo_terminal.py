@@ -2,8 +2,6 @@
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from zeus.security.permissions import PermissionManager
 from zeus.tools.terminal import _needs_sudo, _run_with_optional_sudo
 
@@ -35,7 +33,7 @@ def test_needs_sudo_detection():
 
 def test_run_with_sudo_prompts_password():
     pm = PermissionManager(exec_level="allow")
-    with patch.object(pm, "ask_password", return_value="secretpw") as ask:
+    with patch.object(pm, "ask_password", return_value="secretpw"):
         with patch("zeus.tools.terminal.subprocess.Popen") as mock_popen:
             mock_popen.return_value = _fake_popen(stdout_text="ok\n")
             result = _run_with_optional_sudo("sudo apt install curl", 30, None, pm)

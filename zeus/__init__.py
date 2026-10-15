@@ -18,4 +18,5 @@ from zeus.tools import (  # noqa: F401
     terminal,
     user_profile_tools,
     web,
+    workspace,
 )

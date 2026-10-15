@@ -3,6 +3,7 @@
 
 import pytest
 
+from zeus.security.permissions import PermissionManager
 from zeus.tools.code_intel import (
     _permissions,
     codebase_symbol_map,
@@ -72,3 +73,22 @@ def test_find_symbol(tmp_path):
     assert res_method["status"] == "success"
     assert res_method["total_matches"] == 1
     assert res_method["matches"][0]["name"] == "Table.deal_cards"
+
+
+def test_find_symbol_does_not_read_external_symlink(tmp_path, monkeypatch):
+    import zeus.tools.code_intel as code_intel
+
+    project = tmp_path / "project"
+    project.mkdir()
+    outside = tmp_path / "outside.py"
+    outside.write_text("def zeus_external_symbol(): pass\n", encoding="utf-8")
+    (project / "external.py").symlink_to(outside)
+    monkeypatch.setattr(
+        code_intel,
+        "_permissions",
+        PermissionManager(project_dir=project, file_level="project_only"),
+    )
+
+    result = find_symbol("zeus_external_symbol", path=str(project))
+
+    assert result["total_matches"] == 0

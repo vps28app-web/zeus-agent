@@ -39,18 +39,11 @@ def _get_input(prompt: str, default: Optional[str] = None, secret: bool = False)
     return value.strip() or (default or "")
 
 
-ZUES_CONFIG_DIR = Path.home() / ".zeus"
-DEFAULT_ENV_PATH = ZUES_CONFIG_DIR / ".env"
-
-
 def _project_env_path() -> Path:
-    """Return the default Zeus configuration env file path.
-
-    Configuration is stored in ~/.zeus/.env so it survives reinstalls
-    and works regardless of where the project is cloned.
-    """
-    ZUES_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    return DEFAULT_ENV_PATH
+    """Return the default Zeus configuration env file path."""
+    config_dir = Path(os.getenv("ZEUS_HOME", str(Path.home() / ".zeus"))).expanduser()
+    config_dir.mkdir(parents=True, exist_ok=True)
+    return config_dir / ".env"
 
 
 def _read_env_file(path: Path) -> str:
@@ -61,6 +54,8 @@ def _read_env_file(path: Path) -> str:
 
 def _write_env_file(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
+    if os.name != "nt":
+        path.chmod(0o600)
 
 
 def _upsert_env_var(content: str, key: str, value: str) -> str:
@@ -244,6 +239,63 @@ def _setup_discord(token: str | None = None, allowed_user_ids: str | None = None
     return True
 
 
+def setup_instagram(
+    account_id: str | None = None,
+    access_token: str | None = None,
+    app_secret: str | None = None,
+    verify_token: str | None = None,
+    public_webhook_url: str | None = None,
+) -> bool:
+    """Configure the official Instagram Messaging API webhook integration."""
+    values = {
+        "ZEUS_INSTAGRAM_ACCOUNT_ID": account_id,
+        "ZEUS_INSTAGRAM_ACCESS_TOKEN": access_token,
+        "ZEUS_INSTAGRAM_APP_SECRET": app_secret,
+        "ZEUS_INSTAGRAM_VERIFY_TOKEN": verify_token,
+        "ZEUS_INSTAGRAM_PUBLIC_WEBHOOK_URL": public_webhook_url,
+    }
+    secret_names = {
+        "ZEUS_INSTAGRAM_ACCESS_TOKEN",
+        "ZEUS_INSTAGRAM_APP_SECRET",
+        "ZEUS_INSTAGRAM_VERIFY_TOKEN",
+    }
+    prompts = {
+        "ZEUS_INSTAGRAM_ACCOUNT_ID": "Instagram Professional Account ID",
+        "ZEUS_INSTAGRAM_ACCESS_TOKEN": "Instagram access token",
+        "ZEUS_INSTAGRAM_APP_SECRET": "Meta App Secret",
+        "ZEUS_INSTAGRAM_VERIFY_TOKEN": "Webhook verify token (choose a private string)",
+        "ZEUS_INSTAGRAM_PUBLIC_WEBHOOK_URL": "Public HTTPS webhook URL (use path /webhook)",
+    }
+    for name in values:
+        if values[name] is None:
+            values[name] = os.getenv(name) or _get_input(
+                prompts[name], secret=name in secret_names
+            )
+        if not values[name]:
+            print(f"{name} é obrigatório.")
+            return False
+
+    from urllib.parse import urlparse
+
+    parsed_url = urlparse(values["ZEUS_INSTAGRAM_PUBLIC_WEBHOOK_URL"] or "")
+    if parsed_url.scheme != "https" or not parsed_url.netloc or parsed_url.path != "/webhook":
+        print("A URL do webhook deve ser HTTPS público e usar o caminho /webhook.")
+        return False
+
+    env_path = _project_env_path()
+    content = _read_env_file(env_path)
+    for name, value in values.items():
+        content = _upsert_env_var(content, name, value or "")
+        os.environ[name] = value or ""
+    _write_env_file(env_path, content)
+
+    print(f"\nConfiguração do Instagram salva em {env_path}")
+    print("No painel Meta, habilite o campo de webhook `messages` e configure a URL de callback.")
+    print("A conta deve ser Profissional, o app deve ter acesso a instagram_manage_messages e estar publicado.")
+    print("Para iniciar: zeus gateway start instagram")
+    return True
+
+
 def is_configured(platform: str) -> bool:
     """Check whether the given platform has the minimum required env vars."""
     if platform == "telegram":
@@ -255,6 +307,14 @@ def is_configured(platform: str) -> bool:
         return bool(os.getenv("ZEUS_WHATSAPP_ALLOWED_NUMBERS"))
     if platform == "discord":
         return bool(os.getenv("ZEUS_DISCORD_TOKEN"))
+    if platform == "instagram":
+        return all(os.getenv(name) for name in (
+            "ZEUS_INSTAGRAM_ACCESS_TOKEN",
+            "ZEUS_INSTAGRAM_ACCOUNT_ID",
+            "ZEUS_INSTAGRAM_APP_SECRET",
+            "ZEUS_INSTAGRAM_VERIFY_TOKEN",
+            "ZEUS_INSTAGRAM_PUBLIC_WEBHOOK_URL",
+        ))
     return False
 
 
@@ -268,4 +328,6 @@ def ensure_configured(platform: str) -> bool:
         return setup_whatsapp()
     if platform == "discord":
         return setup_discord()
+    if platform == "instagram":
+        return setup_instagram()
     return False

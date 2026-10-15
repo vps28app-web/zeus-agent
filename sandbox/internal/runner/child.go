@@ -34,12 +34,15 @@ func disableCoreDumps() error {
 
 // RunChild is invoked by the sandbox binary itself when started with
 // --sandbox-child. It sets up the isolated filesystem and runs the command.
-// Full isolation (chroot, private mounts) requires root; without root it
-// degrades gracefully to a clean environment inside the namespace.
+// Root is mandatory: running the payload on the host without a chroot is unsafe.
 func RunChild(command string) error {
+	if os.Geteuid() != 0 {
+		return fmt.Errorf("sandbox execution requires root privileges")
+	}
+
 	// Make / private recursively so mounts don't leak outside the namespace.
 	if err := syscall.Mount("none", "/", "", syscall.MS_REC|syscall.MS_PRIVATE, ""); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: mount private failed (expected without root): %v\n", err)
+		fmt.Fprintf(os.Stderr, "warning: mount private failed: %v\n", err)
 	}
 
 	root := "/"
@@ -85,10 +88,12 @@ func RunChild(command string) error {
 			return fmt.Errorf("cannot find own executable: %w", err)
 		}
 		chrootSelf := filepath.Join(root, "/sandbox")
-		if data, err := os.ReadFile(selfPath); err == nil {
-			if err := os.WriteFile(chrootSelf, data, 0755); err != nil {
-				return fmt.Errorf("copy sandbox into chroot: %w", err)
-			}
+		data, err := os.ReadFile(selfPath)
+		if err != nil {
+			return fmt.Errorf("read sandbox executable: %w", err)
+		}
+		if err := os.WriteFile(chrootSelf, data, 0755); err != nil {
+			return fmt.Errorf("copy sandbox into chroot: %w", err)
 		}
 
 		if err := syscall.Chroot(root); err != nil {
@@ -155,8 +160,8 @@ func ExecInternalChild() {
 
 // dropPrivileges changes uid/gid to nobody if the user exists.
 func dropPrivileges() error {
-	 nobodyUID := 65534
-	 nobodyGID := 65534
+	nobodyUID := 65534
+	nobodyGID := 65534
 
 	// Try to look up nobody from /etc/passwd inside chroot.
 	if u, err := user.Lookup("nobody"); err == nil {

@@ -19,14 +19,9 @@ O modo hardening completo (chroot, mount namespace, network namespace, cgroups) 
 sudo ./sandbox -addr 127.0.0.1:9876
 ```
 
-### Opção 2: sem root (isolamento parcial)
+### Sem root
 
-Sem root o servidor funciona, mas o chroot e o mount namespace privado falham. Ainda há:
-
-- diretório de trabalho temporário
-- ambiente limpo
-- timeout
-- limitação via cgroups (se disponível e permissível)
+O servidor pode iniciar sem root, mas qualquer pedido a `POST /run` é recusado com erro explícito. O Zeus não executa o comando no host sem chroot; o modo parcial anterior não fornecia isolamento de arquivos suficiente para ser seguro.
 
 ### Autenticação (recomendado)
 
@@ -46,8 +41,9 @@ O Zeus envia o token automaticamente quando a variável está definida.
 
 ## Notas de segurança
 
-- A sandbox não é uma barreira de segurança absoluta sem root.
-- Comandos ainda executam como o usuário do processo quando não há chroot.
+- **Allowlist de comandos**: AST shell valida cada comando explícito em pipes/listas e rejeita nomes dinâmicos e caminhos de executáveis. É uma camada extra, não substitui namespaces/chroot/seccomp; binários permitidos ainda podem iniciar subprocessos.
+- **Sem root**: `POST /run` é recusado; o comando não é executado no host sem chroot.
+- Mesmo com root, a sandbox não é uma barreira absoluta contra vulnerabilidades do kernel; o payload roda como `nobody` dentro do chroot.
 - A interface HTTP escuta apenas em `127.0.0.1` por padrão; não exponha para redes externas.
 - Habilite `ZEUS_SANDBOX_AUTH_TOKEN` para restringir acesso local.
 - O endpoint `/run` tem rate limit de 60 requisições/minuto por IP.

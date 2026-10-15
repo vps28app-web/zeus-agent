@@ -16,8 +16,13 @@ No modo interativo:
 /config get ZEUS_PROVIDER       # lê valor de uma variável
 /config set ZEUS_PROVIDER openrouter
 /config set ZEUS_MODEL openrouter/auto
+/config set OPENCODE_GO_API_KEY # abre entrada mascarada para criar/substituir a chave
 /config list-models google      # lista modelos de um provider
 ```
+
+Para chaves e outros segredos, omita o valor: o Zeus solicita a entrada mascarada e grava em `~/.zeus/.env`. Não informe o segredo na mesma linha do comando, pois isso pode salvá-lo no histórico do terminal.
+
+O comando `zeus setup` abre o assistente interativo de provedor/modelo e só solicita credenciais obrigatórias que ainda não estejam configuradas. Para trocar uma chave existente, use `/config set NOME_DA_CHAVE` na CLI interativa; isso abre a entrada mascarada.
 
 Alterações em `ZEUS_PROVIDER` ou `ZEUS_MODEL` são aplicadas em tempo real na sessão ativa.
 

@@ -15,6 +15,7 @@ from zeus.tools import (
     terminal,
     user_profile_tools,
     web,
+    workspace,
 )
 
 __all__ = [
@@ -32,4 +33,5 @@ __all__ = [
     "terminal",
     "user_profile_tools",
     "web",
+    "workspace",
 ]

@@ -2,17 +2,17 @@ package runner
 
 import (
 	"fmt"
-	"os/exec"
 	"strings"
+
+	"mvdan.cc/sh/v3/syntax"
 )
 
-// DefaultAllowedBinaries lists binaries that may be invoked inside the sandbox.
-// Commands are parsed as shell words; only the first word (the binary) is checked.
+// DefaultAllowedBinaries lists direct command names permitted inside the sandbox.
+// Shell interpreters and command dispatchers are omitted because they can execute
+// binaries that are not visible as direct commands in the parsed shell program.
 var DefaultAllowedBinaries = []string{
-	"ash",
 	"apt",
 	"apt-get",
-	"bash",
 	"bc",
 	"cat",
 	"chmod",
@@ -27,10 +27,8 @@ var DefaultAllowedBinaries = []string{
 	"dpkg",
 	"du",
 	"echo",
-	"env",
 	"expr",
 	"false",
-	"find",
 	"git",
 	"grep",
 	"gunzip",
@@ -66,14 +64,12 @@ var DefaultAllowedBinaries = []string{
 	"rmdir",
 	"scp",
 	"sed",
-	"sh",
 	"sleep",
 	"snap",
 	"sort",
 	"ssh",
 	"ssh-keygen",
 	"ssh-keyscan",
-	"sudo",
 	"systemctl",
 	"tail",
 	"tar",
@@ -90,41 +86,90 @@ var DefaultAllowedBinaries = []string{
 	"wc",
 	"wget",
 	"whoami",
-	"xargs",
 	"xz",
 	"zip",
 }
 
-// ValidateCommand checks whether the first binary in a shell command is allowed.
-// The caller is responsible for sanitizing the command string; this function only
-// enforces the binary allowlist because legitimate Zeus commands use shell pipes
-// and substitutions (e.g. `echo ... | base64 -d | bash`).
+// ValidateCommand parses the shell program and checks every explicit simple
+// command against the allowlist. Dynamic command names and explicit executable
+// paths are rejected. This is an additional filter, not a replacement for OS
+// isolation: an allowed program may itself spawn other processes.
 func ValidateCommand(command string, allowed []string) error {
 	if len(allowed) == 0 {
 		return nil
 	}
-	fields := strings.Fields(command)
-	if len(fields) == 0 {
+	parsed, err := syntax.NewParser(syntax.Variant(syntax.LangPOSIX)).Parse(strings.NewReader(command), "")
+	if err != nil {
+		return fmt.Errorf("invalid shell syntax: %w", err)
+	}
+	if len(parsed.Stmts) == 0 {
 		return fmt.Errorf("empty command")
 	}
-	name := fields[0]
-	// Strip any leading path; only base names are allowed.
-	if idx := strings.LastIndex(name, "/"); idx >= 0 {
-		name = name[idx+1:]
-	}
+	allowedSet := make(map[string]struct{}, len(allowed))
 	for _, allowedName := range allowed {
-		if name == allowedName {
-			return nil
-		}
+		allowedSet[allowedName] = struct{}{}
 	}
-	return fmt.Errorf("binary %q is not in the sandbox allowlist", name)
+
+	var validationErr error
+	syntax.Walk(parsed, func(node syntax.Node) bool {
+		if validationErr != nil {
+			return false
+		}
+		if assignment, ok := node.(*syntax.Assign); ok && assignment.Name != nil && assignment.Name.Value == "PATH" {
+			validationErr = fmt.Errorf("overriding PATH is not allowed")
+			return false
+		}
+		call, ok := node.(*syntax.CallExpr)
+		if !ok || len(call.Args) == 0 {
+			return true
+		}
+		name, literal := literalWord(call.Args[0])
+		if !literal {
+			validationErr = fmt.Errorf("dynamic command names are not allowed")
+			return false
+		}
+		if strings.Contains(name, "/") {
+			validationErr = fmt.Errorf("explicit command paths are not allowed: %q", name)
+			return false
+		}
+		if _, ok := allowedSet[name]; !ok {
+			validationErr = fmt.Errorf("binary %q is not in the sandbox allowlist", name)
+			return false
+		}
+		return true
+	})
+	return validationErr
 }
 
-// parseCommandWords parses a shell command into words without invoking a shell.
-// It uses /bin/sh -n to validate syntax and falls back to simple field splitting.
-func parseCommandWords(command string) ([]string, error) {
-	if _, err := exec.Command("/bin/sh", "-n", "-c", command).Output(); err != nil {
-		return nil, fmt.Errorf("invalid shell syntax: %w", err)
+func literalWord(word *syntax.Word) (string, bool) {
+	var value strings.Builder
+	for _, part := range word.Parts {
+		literal, ok := literalWordPart(part)
+		if !ok {
+			return "", false
+		}
+		value.WriteString(literal)
 	}
-	return strings.Fields(command), nil
+	return value.String(), value.Len() > 0
+}
+
+func literalWordPart(part syntax.WordPart) (string, bool) {
+	switch part := part.(type) {
+	case *syntax.Lit:
+		return part.Value, true
+	case *syntax.SglQuoted:
+		return part.Value, true
+	case *syntax.DblQuoted:
+		var value strings.Builder
+		for _, nested := range part.Parts {
+			literal, ok := literalWordPart(nested)
+			if !ok {
+				return "", false
+			}
+			value.WriteString(literal)
+		}
+		return value.String(), true
+	default:
+		return "", false
+	}
 }

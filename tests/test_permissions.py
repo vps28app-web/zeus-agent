@@ -79,6 +79,23 @@ def test_file_project_only_allows_inside_project(tmp_path):
     assert not pm.can_delete_file(outside)
 
 
+def test_file_project_only_restricts_reads_and_listings(tmp_path):
+    pm = PermissionManager(file_level="project_only", project_dir=tmp_path)
+    inside = tmp_path / "inside.txt"
+    outside = tmp_path.parent / "outside.txt"
+    outside_file_link = tmp_path / "outside-file-link"
+    outside_dir_link = tmp_path / "outside-dir-link"
+    outside_file_link.symlink_to(outside)
+    outside_dir_link.symlink_to(tmp_path.parent, target_is_directory=True)
+
+    assert pm.can_read_file(inside)
+    assert pm.can_list_directory(tmp_path)
+    assert not pm.can_read_file(outside)
+    assert not pm.can_list_directory(tmp_path.parent)
+    assert not pm.can_read_file(outside_file_link)
+    assert not pm.can_list_directory(outside_dir_link)
+
+
 def test_file_unrestricted_allows_anywhere():
     pm = PermissionManager(file_level="unrestricted")
     assert pm.can_write_file(Path("/tmp/anywhere.txt"))

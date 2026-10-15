@@ -201,7 +201,7 @@ def test_cdp_client_screenshot(cdp_client, http_server):
     assert shot_path.stat().st_size > 0
 
 
-def test_browser_navigate_tool(http_server):
+def test_browser_navigate_tool(http_server, chrome_binary):
     url = _write_and_url(
         http_server,
         "page.html",
@@ -214,7 +214,7 @@ def test_browser_navigate_tool(http_server):
     assert "Hi" in result["text"]
 
 
-def test_browser_extract_tool(http_server):
+def test_browser_extract_tool(http_server, chrome_binary):
     url = _write_and_url(
         http_server,
         "page.html",
@@ -226,7 +226,7 @@ def test_browser_extract_tool(http_server):
     assert "content" in result["html"]
 
 
-def test_browser_extract_with_selector_tool(http_server):
+def test_browser_extract_with_selector_tool(http_server, chrome_binary):
     url = _write_and_url(
         http_server,
         "page.html",
@@ -239,7 +239,7 @@ def test_browser_extract_with_selector_tool(http_server):
     assert len(result["elements"]) == 1
 
 
-def test_browser_evaluate_tool(http_server):
+def test_browser_evaluate_tool(http_server, chrome_binary):
     url = _write_and_url(
         http_server,
         "page.html",
@@ -251,7 +251,7 @@ def test_browser_evaluate_tool(http_server):
     assert result["result"] == "1"
 
 
-def test_browser_click_tool(http_server):
+def test_browser_click_tool(http_server, chrome_binary):
     url = _write_and_url(
         http_server,
         "page.html",

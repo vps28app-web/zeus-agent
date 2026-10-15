@@ -58,6 +58,8 @@ python -m zeus.cli --team "tarefa complexa"
 
 ## Comandos da CLI
 
+Use `/models` para abrir o seletor de provedor e modelo. `/provider` continua funcionando como alias de compatibilidade.
+
 | Comando | Descrição |
 |---|---|
 | `/sair`, `/quit`, `/exit` | Encerra |

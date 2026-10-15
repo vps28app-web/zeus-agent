@@ -115,6 +115,7 @@ def opencode_go_chat(
             headers={
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
+                "User-Agent": "ZeusAgent/0.1.0",
                 "x-opencode-session": "zeus-session",
             },
             json={
@@ -130,6 +131,19 @@ def opencode_go_chat(
         # (4xx auth/bad request) should fail fast.
         if response.status_code >= 500:
             raise TransientServerError(response.status_code, response.text)
+        if response.status_code == 400:
+            try:
+                error_body = response.json()
+            except (ValueError, requests.exceptions.JSONDecodeError):
+                error_body = {}
+            error = error_body.get("error", {}) if isinstance(error_body, dict) else {}
+            if isinstance(error, dict):
+                detail = error.get("message") or error.get("detail") or error.get("type")
+            elif isinstance(error, str):
+                detail = error
+            else:
+                detail = None
+            raise RuntimeError(f"OpenCode Go bad request (400): {str(detail or 'invalid request')[:500]}")
         response.raise_for_status()
         return response
 

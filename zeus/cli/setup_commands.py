@@ -112,6 +112,8 @@ def _read_env_file(path: Path) -> str:
 
 def _write_env_file(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
+    if os.name != "nt":
+        path.chmod(0o600)
 
 
 def _upsert_env_var(content: str, key: str, value: str) -> str:
@@ -293,8 +295,6 @@ def _print_provider_menu(providers: List[str], current_provider: str) -> None:
             key_status = ""
         left_text = f"{marker} {i}. {name}"
         right_text = key_status
-        left_width = _visible_width(left_text)
-        right_width = _visible_width(right_text)
         avail = inner_width - 2
         if right_text:
             full_line = f"{left_text} {right_text}"
@@ -427,12 +427,14 @@ def _setup_model() -> bool:
     env_path = _project_env_path()
     content = _read_env_file(env_path)
 
-    missing_vars = [var for var in env_vars if not os.getenv(var)]
-    if missing_vars:
-        for var in missing_vars:
-            value = _get_input(f"{var} (deixe em branco para pular)", secret=True)
-            if value:
-                content = _upsert_env_var(content, var, value)
+    for var in env_vars:
+        if os.getenv(var):
+            continue
+        secret = any(marker in var.upper() for marker in ("KEY", "SECRET", "TOKEN"))
+        value = _get_input(f"{var} (deixe em branco para pular)", secret=secret)
+        if value:
+            content = _upsert_env_var(content, var, value)
+            os.environ[var] = value
 
     # For Google OAuth, ensure a valid access token (refresh silently or open browser).
     if provider == "google_auth":

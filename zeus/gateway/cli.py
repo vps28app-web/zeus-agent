@@ -13,19 +13,23 @@ from zeus.gateway.discord import DiscordGateway
 from zeus.gateway.setup import (
     ensure_configured,
     setup_discord,
+    setup_instagram,
     setup_telegram,
     setup_whatsapp,
 )
 from zeus.gateway.telegram import TelegramGateway
 from zeus.gateway.whatsapp import WhatsAppGateway
 
-ZUES_CONFIG_DIR = Path.home() / ".zeus"
-DEFAULT_ENV_PATH = ZUES_CONFIG_DIR / ".env"
+
+def _config_env_path() -> Path:
+    config_dir = Path(os.getenv("ZEUS_HOME", str(Path.home() / ".zeus"))).expanduser()
+    config_dir.mkdir(parents=True, exist_ok=True)
+    return config_dir / ".env"
 
 
 def _load_env() -> None:
-    """Load .env from ~/.zeus/.env or the project root if present."""
-    paths = [DEFAULT_ENV_PATH, Path.cwd() / ".env"]
+    """Load .env from ZEUS_HOME or the project root if present."""
+    paths = [_config_env_path(), Path.cwd() / ".env"]
     for env_file in paths:
         if env_file.exists():
             load_dotenv(env_file)
@@ -33,8 +37,7 @@ def _load_env() -> None:
 
 def _env_file_path() -> Path:
     """Return the preferred env file path for the current setup."""
-    ZUES_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    return DEFAULT_ENV_PATH
+    return _config_env_path()
 
 
 def _telegram_chat_ids_from_env() -> list[int] | None:
@@ -97,6 +100,12 @@ def _start_discord() -> None:
     gateway.run()
 
 
+def _start_instagram() -> None:
+    from zeus.gateway.instagram import start_from_env
+
+    start_from_env()
+
+
 def _ask_service_mode(platform: str) -> str:
     print("\nComo deseja executar o gateway?")
     print("1. manual   - roda no terminal, para com Ctrl+C")
@@ -115,6 +124,7 @@ def _start_service(platform: str) -> None:
         "telegram": "zeus-telegram-gateway.service",
         "whatsapp": "zeus-whatsapp-gateway.service",
         "discord": "zeus-discord-gateway.service",
+        "instagram": "zeus-instagram-gateway.service",
     }
     service = service_map.get(platform)
     if not service:
@@ -124,7 +134,7 @@ def _start_service(platform: str) -> None:
     service_path = Path.home() / ".config" / "systemd" / "user" / service
     service_path.parent.mkdir(parents=True, exist_ok=True)
 
-    env_file = Path.home() / ".zeus" / ".env"
+    env_file = _env_file_path()
     cwd = Path.cwd()
     python = sys.executable
 
@@ -167,7 +177,7 @@ def main() -> int:
     subparsers = parser.add_subparsers(dest="command", help="Commands")
 
     # Legacy: python -m zeus.gateway --platform telegram
-    parser.add_argument("--platform", choices=["telegram", "whatsapp", "discord"], default=None, help=argparse.SUPPRESS)
+    parser.add_argument("--platform", choices=["telegram", "whatsapp", "discord", "instagram"], default=None, help=argparse.SUPPRESS)
     parser.add_argument("--token", help=argparse.SUPPRESS)
     parser.add_argument("--allowed-chat-ids", help=argparse.SUPPRESS)
     parser.add_argument("--allowed-numbers", help=argparse.SUPPRESS)
@@ -178,14 +188,14 @@ def main() -> int:
 
     # start command
     start_parser = subparsers.add_parser("start", help="Start a gateway")
-    start_parser.add_argument("platform", choices=["telegram", "whatsapp", "discord"])
+    start_parser.add_argument("platform", choices=["telegram", "whatsapp", "discord", "instagram"])
     start_parser.add_argument("--mode", choices=["manual", "systemd"], default=None)
     start_parser.add_argument("--poll-interval", type=float, default=1.0)
     start_parser.add_argument("--whatsapp-url", default="http://127.0.0.1:9877")
 
     # setup command
     setup_parser = subparsers.add_parser("setup", help="Configure a gateway interactively")
-    setup_parser.add_argument("platform", choices=["telegram", "whatsapp", "discord"])
+    setup_parser.add_argument("platform", choices=["telegram", "whatsapp", "discord", "instagram"])
     setup_parser.add_argument("--token", help="Bot token (Telegram/Discord)")
     setup_parser.add_argument("--chat-id", help="Allowed Telegram chat ID")
     setup_parser.add_argument("--skip-validation", action="store_true", help="Skip Telegram token validation")
@@ -215,6 +225,8 @@ def main() -> int:
                 if args.allowed_channel_ids:
                     os.environ.setdefault("ZEUS_DISCORD_ALLOWED_CHANNEL_IDS", args.allowed_channel_ids)
                 _start_discord()
+            elif args.platform == "instagram":
+                _start_instagram()
         except RuntimeError as exc:
             print(f"Erro: {exc}")
             return 1
@@ -232,6 +244,8 @@ def main() -> int:
                     allowed_user_ids=args.allowed_user_ids,
                     allowed_channel_ids=args.allowed_channel_ids,
                 )
+            elif args.platform == "instagram":
+                ok = setup_instagram()
             else:
                 parser.error("Platform required")
                 return 2
@@ -259,6 +273,8 @@ def main() -> int:
                 _start_whatsapp(args.poll_interval, args.whatsapp_url)
             elif args.platform == "discord":
                 _start_discord()
+            elif args.platform == "instagram":
+                _start_instagram()
         except RuntimeError as exc:
             print(f"Erro: {exc}")
             return 1

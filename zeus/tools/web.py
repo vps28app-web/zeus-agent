@@ -7,7 +7,6 @@ from typing import Any, Dict, List
 
 from zeus.core.registry import register_tool
 
-
 # Block URLs that target internal/private infrastructure (SSRF protection).
 BLOCKED_HOST_PATTERNS = [
     re.compile(r"^localhost$", re.IGNORECASE),

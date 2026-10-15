@@ -226,6 +226,37 @@ def test_openai_chat_missing_key_raises(mock_post):
 
 
 @patch("requests.post")
+def test_opencode_go_sends_descriptive_user_agent(mock_post):
+    env = {
+        "OPENCODE_GO_API_KEY": "fake-opencode-key",
+        "OPENCODE_GO_BASE_URL": "https://opencode.ai/zen/go/v1",
+    }
+    mock_response = MagicMock(status_code=200)
+    mock_response.json.return_value = {"choices": []}
+    mock_post.return_value = mock_response
+
+    with patch.dict(os.environ, env, clear=False):
+        router.opencode_go_chat([{"role": "user", "content": "hi"}], [], "deepseek-v4-pro")
+
+    assert mock_post.call_args.kwargs["headers"]["User-Agent"] == "ZeusAgent/0.1.0"
+
+
+@patch("requests.post")
+def test_opencode_go_reports_provider_bad_request_detail(mock_post):
+    env = {
+        "OPENCODE_GO_API_KEY": "fake-opencode-key",
+        "OPENCODE_GO_BASE_URL": "https://opencode.ai/zen/go/v1",
+    }
+    mock_response = MagicMock(status_code=400, text='{"error":{"message":"invalid request detail"}}')
+    mock_response.json.return_value = {"error": {"message": "invalid request detail"}}
+    mock_post.return_value = mock_response
+
+    with patch.dict(os.environ, env, clear=False):
+        with pytest.raises(RuntimeError, match="invalid request detail"):
+            router.opencode_go_chat([{"role": "user", "content": "hi"}], [], "deepseek-v4-pro")
+
+
+@patch("requests.post")
 def test_opencode_go_chat_retries_on_connection_reset(mock_post):
     env = {
         "OPENCODE_GO_API_KEY": "fake-opencode-key",

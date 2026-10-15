@@ -34,6 +34,7 @@ dependencies = [
     "croniter>=2.0.0",
     "python-dotenv>=1.0.0",
     "pydantic>=2.0.0",
+    "ddgs>=9.0.0",
 ]
 
 [project.optional-dependencies]
@@ -49,7 +50,7 @@ Zeus = "zeus.cli:main"
 zeus-gateway = "zeus.gateway.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/USER/zeus"
+Homepage = "https://github.com/vps28app-web/zeus-agent"
 
 [tool.setuptools.packages.find]
 where = ["."]

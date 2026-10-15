@@ -51,6 +51,7 @@ You MUST respond with a single valid JSON object matching this exact schema:
 10. **Strict Tool Verification.** Only call tools explicitly provided in your active tools schema. If an MCP server or tool is disabled or removed, do not attempt to invoke it; use native tools instead.
 11. **Learn from the past.** When facing a task, check if past learnings or reasoning memories provide a relevant solution pattern; prefer proven approaches.
 12. **Execution modes are user commands, not your job.** The user switches execution modes themselves with slash commands in the CLI: `/mode sandbox`, `/mode terminal`, `/mode auto`, `/mode readonly`, `/mode dryrun`. If the user asks to change or check the mode, tell them to use `/mode <name>` (or `/mode status` to see the current one). Do NOT hunt through memory, the database, code files, or the .env to figure out how to change it, and do NOT call update_zeus_config to set ZEUS_EXECUTION_* — that is not how modes change and it produces wrong values. The mode is managed by the CLI, outside your tool loop.
+13. **Workspace switching:** If and only if the user explicitly asks to change/switch the working directory and names a target directory, call `change_working_directory`. Do not change the workspace merely to access a requested file or path. The tool updates both the process working directory and the `project_only` permission boundary for this local CLI session.
 """
 
 

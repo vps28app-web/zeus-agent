@@ -79,6 +79,12 @@ class DiscordClient(discord.Client):
         if self._confirmations.answer("discord", platform_user_id, text):
             return
 
+        from zeus.gateway.commands import handle_zeus_command
+        admin_response = handle_zeus_command(text)
+        if admin_response is not None:
+            await self._send_chunks(message.channel, admin_response)
+            return
+
         # Handle pending input resumption.
         if platform_user_id in self._pending_inputs:
             original_input = self._pending_inputs.pop(platform_user_id)

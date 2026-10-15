@@ -7,7 +7,7 @@ Agent harness minimalista escrito em Python. Agente = modelo + harness. Zeus é 
 ```
 zeus/
 ├── core/           # agent loop, registry, router, multi-agent team
-├── tools/          # 29 ferramentas disponíveis
+├── tools/          # ferramentas nativas
 ├── memory/         # memória persistente (JSON + SQLite)
 ├── db/             # SQLite: memories, sessions, turns, metrics, scheduled_tasks
 ├── observability/  # métricas, custo, tracing, reporter
@@ -81,12 +81,19 @@ Ferramentas MCP são registradas automaticamente no agente com o prefixo `mcp_<s
 ## Uso rápido
 
 ```bash
+# Configuração inicial interativa (provedor/modelo + integrações escolhidas)
+zeus setup
+
 # Modo interativo
 python -m zeus.cli
 
 # Query única
 python -m zeus.cli -q "liste arquivos do diretório atual"
+```
 
+No CLI local, você pode trocar de projeto pedindo ao Zeus, por exemplo: “mude a pasta de trabalho para /caminho/do/projeto”. A mudança vale até encerrar o processo e também ajusta a fronteira de acesso do modo `project_only`; não altera arquivos de configuração.
+
+```bash
 # Comandos interativos úteis
 /help       # menu de comandos
 /skills     # selecionar persona
@@ -105,7 +112,7 @@ python -m zeus.cli -q "liste arquivos do diretório atual"
 
 ## Gateways
 
-Telegram, WhatsApp e Discord. Veja `docs/GATEWAY.md`.
+Telegram, WhatsApp, Discord e Instagram Messaging (conta Profissional via API oficial da Meta). Veja `docs/GATEWAY.md`.
 
 ## Tarefas agendadas
 
@@ -121,7 +128,7 @@ schedule_task(
 
 ## Sandbox Go
 
-Código shell/python executado em ambiente isolado com chroot, namespaces, cgroups, seccomp-bpf e drop para `nobody`. Start:
+Código shell/python executado em ambiente isolado com chroot, namespaces, cgroups e seccomp-bpf. Root é obrigatório; sem privilégios, a execução é recusada para não rodar comandos no host sem isolamento. Inicie assim:
 
 ```bash
 sudo ./sandbox/sandbox -addr 127.0.0.1:9876

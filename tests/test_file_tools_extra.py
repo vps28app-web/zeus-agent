@@ -6,6 +6,7 @@ from zeus.security.permissions import PermissionManager
 from zeus.tools.file import (
     copy_file,
     delete_file,
+    grep_search,
     list_directory,
     move_file,
     read_file,
@@ -114,3 +115,28 @@ def test_read_file_permission_denied(tmp_path):
     set_file_permission_manager(pm)
     res = read_file(str(tmp_path / "x.txt"))
     assert "error" in res
+
+
+def test_project_only_blocks_external_read_listing_and_copy(tmp_path):
+    outside = tmp_path.parent / f"{tmp_path.name}_outside.txt"
+    destination = tmp_path / "copied.txt"
+    outside.write_text("outside secret", encoding="utf-8")
+    try:
+        assert "error" in read_file(str(outside))
+        assert "error" in list_directory(str(tmp_path.parent))
+        assert "error" in copy_file(str(outside), str(destination))
+        assert not destination.exists()
+    finally:
+        outside.unlink(missing_ok=True)
+
+
+def test_project_only_grep_does_not_read_external_symlink(tmp_path):
+    outside = tmp_path.parent / f"{tmp_path.name}_external.py"
+    link = tmp_path / "external.py"
+    outside.write_text("def zeus_external_secret_marker(): pass\n", encoding="utf-8")
+    link.symlink_to(outside)
+    try:
+        result = grep_search("zeus_external_secret_marker", path=str(tmp_path))
+        assert result["total_matches"] == 0
+    finally:
+        outside.unlink(missing_ok=True)

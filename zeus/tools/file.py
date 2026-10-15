@@ -196,6 +196,21 @@ def copy_file(src: str, dest: str) -> Dict[str, Any]:
     if not src_path.exists():
         return {"error": f"Source path not found: {src}"}
 
+    if not _permissions.can_read_file(src_path):
+        return {"error": "Source read not allowed at current permission level."}
+
+    if src_path.is_dir():
+        if not _permissions.can_list_directory(src_path):
+            return {"error": "Source directory access not allowed at current permission level."}
+        for entry in src_path.rglob("*"):
+            allowed = (
+                _permissions.can_list_directory(entry)
+                if entry.is_dir()
+                else _permissions.can_read_file(entry)
+            )
+            if not allowed:
+                return {"error": "Source tree contains a path outside the allowed project."}
+
     if not _permissions.can_write_file(dest_path):
         try:
             _permissions.ensure_write_allowed(dest_path)
@@ -287,6 +302,8 @@ def grep_search(
     try:
         for file_path in dir_path.rglob("*"):
             if not file_path.is_file():
+                continue
+            if not _permissions.can_read_file(file_path):
                 continue
 
             parts = file_path.parts

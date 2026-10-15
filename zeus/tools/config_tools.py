@@ -32,6 +32,8 @@ def _upsert_env(key: str, value: str) -> None:
         lines.append(f"{key}={value}\n")
 
     path.write_text("".join(lines), encoding="utf-8")
+    if os.name != "nt":
+        path.chmod(0o600)
 
     # Update in memory; keep GEMINI and GOOGLE aliases in sync for router compatibility.
     os.environ[key] = value

@@ -333,10 +333,14 @@ class PermissionManager:
             return False
 
     def can_read_file(self, path: Path) -> bool:
-        return self.file_level in ("read_only", "project_only", "unrestricted")
+        if self.file_level == "project_only":
+            return self._is_inside_project(path)
+        return self.file_level in ("read_only", "unrestricted")
 
     def can_list_directory(self, path: Path) -> bool:
-        return self.file_level in ("read_only", "project_only", "unrestricted")
+        if self.file_level == "project_only":
+            return self._is_inside_project(path)
+        return self.file_level in ("read_only", "unrestricted")
 
     def can_write_file(self, path: Path) -> bool:
         if self.file_level == "unrestricted":

@@ -84,7 +84,7 @@ class TelegramGateway:
         set_file_permission_callback(callback)
         # Wire gateway confirmation manager into the global PermissionManager so
         # terminal-mode tool confirmations can also prompt the user.
-        from zeus.security.permissions import set_global_permission_manager, PermissionManager
+        from zeus.security.permissions import PermissionManager, set_global_permission_manager
         set_global_permission_manager(PermissionManager(confirm_callback=callback))
 
     def api_url(self, method: str) -> str:
@@ -186,6 +186,12 @@ class TelegramGateway:
 
         # Handle pending file permission confirmations.
         if self._confirmations.answer("telegram", user_id, text):
+            return
+
+        from zeus.gateway.commands import handle_zeus_command
+        admin_response = handle_zeus_command(text)
+        if admin_response is not None:
+            self.send_message(chat_id, admin_response, reply_to_message_id=message_id)
             return
 
         # Handle pending input resumption.

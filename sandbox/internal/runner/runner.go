@@ -32,6 +32,13 @@ type Request struct {
 
 // Run executes a command in a restricted child process using Linux namespaces.
 func Run(ctx context.Context, req Request) Result {
+	if os.Geteuid() != 0 {
+		return Result{
+			ExitCode: 1,
+			Error:    "sandbox execution requires root privileges; start the sandbox server with sudo",
+		}
+	}
+
 	if req.TimeoutSec <= 0 {
 		req.TimeoutSec = 30
 	}

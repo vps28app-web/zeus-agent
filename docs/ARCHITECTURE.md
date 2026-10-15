@@ -99,4 +99,5 @@ Binary Go isolado rodando em `127.0.0.1:9876`:
 - cgroups v2 (memória e CPU)
 - seccomp-bpf whitelist (52 syscalls permitidos)
 - Drop de privilégios para `nobody` (uid 65534)
-- Whitelist de binários permitidos
+- Allowlist de comandos diretos validada por AST shell; percorre pipes/listas, rejeita nomes dinâmicos, caminhos explícitos e override de `PATH`
+- Sem root, `/run` é recusado; o payload nunca é executado sem chroot
