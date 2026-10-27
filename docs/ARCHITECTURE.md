@@ -1,5 +1,7 @@
 # Arquitetura do Zeus
 
+> Para a visão geral, instalação, configuração e limites operacionais atualizados, consulte [`PROJETO.md`](PROJETO.md). Esta página detalha os componentes internos.
+
 ## Visão geral
 
 ```
@@ -40,7 +42,8 @@ Interface unificada para 8 provedores:
 | `opencode_go` | api.opencode.co | OpenAI-like |
 | `openai` | api.openai.com | OpenAI-like |
 | `anthropic` | api.anthropic.com | Messages API |
-| `google` | generativelanguage.googleapis.com | Gemini |
+| `google` / `google_api` | generativelanguage.googleapis.com | Gemini API |
+| `google_auth` | OAuth browser flow | Gemini API via OAuth |
 | `deepseek` | api.deepseek.com | OpenAI-like |
 | `mistral` | api.mistral.ai | OpenAI-like |
 
@@ -57,8 +60,8 @@ Interface unificada para 8 provedores:
 
 ### 6. Memória (`zeus/memory/`)
 
-- `store.py` — `remember`/`recall`, JSON por padrão, SQLite opcional
-- `session_log.py` — logs de sessão em JSONL + SQLite
+- `store.py` — `remember`/`recall`; SQLite é o padrão (`ZEUS_USE_SQLITE=true`) e JSON em `~/.zeus/memory.json` é alternativa.
+- `session_log.py` — histórico JSONL em `~/.zeus/logs/` e persistência SQLite opcional.
 
 ### 7. Banco de Dados (`zeus/db/`)
 
@@ -88,16 +91,19 @@ Thread polling a cada 60s. Verifica `scheduled_tasks` no SQLite por tarefas pron
 ### 11. Gateways (`zeus/gateway/`)
 
 - `telegram.py` — polling HTTP no Bot API
-- `whatsapp.py` — ponte Python + Baileys (Node.js)
-- `discord.py` — discord.py com intents
+- `whatsapp.py` — gateway Python ligado à ponte Baileys (Node.js)
+- `discord.py` — integração via `discord.py`
+- Instagram Messaging — webhook HTTPS pela API oficial da Meta para conta profissional
 
 ### 12. Sandbox Go (`sandbox/`)
 
-Binary Go isolado rodando em `127.0.0.1:9876`:
-- chroot para `/tmp/zeus-rootfs`
-- Linux namespaces (mount, PID, network, UTS, IPC)
-- cgroups v2 (memória e CPU)
-- seccomp-bpf whitelist (52 syscalls permitidos)
-- Drop de privilégios para `nobody` (uid 65534)
-- Allowlist de comandos diretos validada por AST shell; percorre pipes/listas, rejeita nomes dinâmicos, caminhos explícitos e override de `PATH`
-- Sem root, `/run` é recusado; o payload nunca é executado sem chroot
+Serviço HTTP Go em loopback (`127.0.0.1:9876`); `/run` exige token bearer configurado. Para cada execução:
+
+- cria workspace temporário privado e chroot em tmpfs;
+- usa namespaces mount, PID, network, UTS e IPC;
+- monta `/bin`, `/usr` e bibliotecas read-only, `nosuid` e `nodev`, sem montar o `/etc` do host;
+- aplica cgroups v2 para memória, quota de CPU e PIDs;
+- instala seccomp-bpf obrigatoriamente e reduz o payload ao usuário `nobody`;
+- limita tempo, saída, corpo HTTP e execuções concorrentes; rejeita requisições fora dos limites.
+
+Se root, namespaces, seccomp ou limites cgroup não puderem ser aplicados, falha fechada. Requer Linux amd64 e cgroup v2; não é uma barreira absoluta contra vulnerabilidades do kernel. Detalhes e implantação: [`SANDBOX.md`](SANDBOX.md).

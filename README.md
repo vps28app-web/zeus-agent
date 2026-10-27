@@ -139,10 +139,11 @@ sudo -E ./sandbox -addr 127.0.0.1:9876
 
 ## Documentação
 
-- `docs/ARCHITECTURE.md` — arquitetura detalhada
+- `docs/PROJETO.md` — documentação completa: visão geral, arquitetura, instalação, configuração e segurança
+- `docs/ARCHITECTURE.md` — componentes internos
 - `docs/USAGE.md` — uso completo
 - `docs/TOOLS.md` — todas as 50 ferramentas
-- `docs/GATEWAY.md` — gateways Telegram, WhatsApp e Discord
+- `docs/GATEWAY.md` — gateways Telegram, WhatsApp, Discord e Instagram Messaging
 - `docs/SANDBOX.md` — detalhes da sandbox
 - `docs/MCP.md` — Model Context Protocol
 - `docs/CONFIG.md` — gerenciamento de configurações
