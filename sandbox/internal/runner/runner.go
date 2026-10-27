@@ -162,6 +162,12 @@ func buildPayloadEnv(encoded string) ([]string, error) {
 
 // Run executes a command in a restricted child process using Linux namespaces.
 func Run(ctx context.Context, req Request) Result {
+	return runWithExecutable(ctx, req, "")
+}
+
+// runWithExecutable allows integration tests to start the real sandbox binary;
+// production callers leave executable empty and use this process's executable.
+func runWithExecutable(ctx context.Context, req Request, selfPath string) Result {
 	if err := ValidateRequest(req); err != nil {
 		return Result{ExitCode: 1, Error: err.Error()}
 	}
@@ -194,9 +200,11 @@ func Run(ctx context.Context, req Request) Result {
 	}
 	defer os.RemoveAll(workDir)
 
-	selfPath, err := os.Executable()
-	if err != nil {
-		return Result{Error: fmt.Sprintf("failed to find executable: %v", err)}
+	if selfPath == "" {
+		selfPath, err = os.Executable()
+		if err != nil {
+			return Result{Error: fmt.Sprintf("failed to find executable: %v", err)}
+		}
 	}
 
 	helperEnv, err := buildSandboxHelperEnv(req.Env)
