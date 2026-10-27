@@ -66,6 +66,17 @@ def test_run_sandboxed_command_success(mock_post, mock_available):
 
 
 @patch("zeus.tools.sandbox_client.is_sandbox_available")
+@patch("requests.post")
+def test_run_sandboxed_command_rejects_unsupported_work_dir(mock_post, mock_available, tmp_path):
+    result = client.run_sandboxed_command("echo hello", work_dir=str(tmp_path))
+    assert result == {
+        "error": "work_dir is not supported; sandbox workspaces are always created in a private temporary directory"
+    }
+    mock_available.assert_not_called()
+    mock_post.assert_not_called()
+
+
+@patch("zeus.tools.sandbox_client.is_sandbox_available")
 def test_run_sandboxed_command_unavailable(mock_available):
     mock_available.return_value = False
     result = client.run_sandboxed_command("echo hello")
@@ -83,3 +94,17 @@ def test_run_sandboxed_command_connection_error(mock_post, mock_available):
     result = client.run_sandboxed_command("echo hello")
     assert "error" in result
     assert "not available" in result["error"]
+
+
+@patch("zeus.tools.sandbox_client.is_sandbox_available")
+@patch("requests.post")
+def test_run_sandboxed_command_preserves_server_error_details(mock_post, mock_available):
+    import requests
+
+    mock_available.return_value = True
+    mock_post.return_value.status_code = 503
+    mock_post.return_value.json.return_value = {"error": "resource limits unavailable"}
+    mock_post.return_value.raise_for_status = MagicMock(side_effect=requests.HTTPError("503 Server Error"))
+
+    result = client.run_sandboxed_command("echo hello")
+    assert result == {"error": "resource limits unavailable"}

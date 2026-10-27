@@ -36,7 +36,7 @@ ZEUS_USE_SQLITE=true
 ### CLI interativo
 
 ```bash
-cd /home/vps28/Documentos/Dev/Zeus
+cd /caminho/para/Zeus
 source .venv/bin/activate
 python -m zeus.cli
 ```
@@ -121,11 +121,15 @@ cancel_task(task_id="abc123")
 
 ## Sandbox
 
-Para usar `execute_python` e `run_sandboxed`, inicie a sandbox:
+Para usar `execute_python` e `run_sandboxed`, configure `ZEUS_SANDBOX_AUTH_TOKEN` no ambiente do Zeus e do servidor (o mesmo segredo nos dois). Gere um token e inicie o servidor:
 
 ```bash
-sudo ./sandbox/sandbox -addr 127.0.0.1:9876
+export ZEUS_SANDBOX_AUTH_TOKEN="$(openssl rand -hex 32)"
+# Grave o mesmo valor no .env do Zeus.
+sudo -E ./sandbox/sandbox -addr 127.0.0.1:9876
 ```
+
+Com systemd, `scripts/install-systemd.sh` instala o binário em `/usr/local/lib/zeus/sandbox` e copia somente o token do `.env` do Zeus para `/etc/zeus/sandbox.env`, protegido com permissão `600`.
 
 ## Testes
 

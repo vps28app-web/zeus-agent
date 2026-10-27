@@ -74,7 +74,11 @@ def run_sandboxed_command(
     env: Optional[Dict[str, str]] = None,
     work_dir: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Send a command to the sandbox server and return the result."""
+    """Send a command to the sandbox server; reject unsupported custom work dirs."""
+    if work_dir:
+        return {
+            "error": "work_dir is not supported; sandbox workspaces are always created in a private temporary directory"
+        }
     base_url = os.getenv("ZEUS_SANDBOX_URL", DEFAULT_URL).rstrip("/")
     if not is_sandbox_available(base_url):
         return {
@@ -99,7 +103,14 @@ def run_sandboxed_command(
             timeout=timeout + 5,
             headers=_sandbox_headers(),
         )
-        response.raise_for_status()
+        if response.status_code >= 400:
+            try:
+                error_payload = response.json()
+            except ValueError:
+                error_payload = None
+            if isinstance(error_payload, dict) and error_payload.get("error"):
+                return error_payload
+            response.raise_for_status()
         return response.json()
     except requests.ConnectionError:
         return {

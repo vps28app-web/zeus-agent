@@ -19,7 +19,7 @@ zeus/
 ## Instalação
 
 ```bash
-cd /home/vps28/Documentos/Dev/Zeus
+cd /caminho/para/Zeus
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
@@ -128,10 +128,13 @@ schedule_task(
 
 ## Sandbox Go
 
-Código shell/python executado em ambiente isolado com chroot, namespaces, cgroups e seccomp-bpf. Root é obrigatório; sem privilégios, a execução é recusada para não rodar comandos no host sem isolamento. Inicie assim:
+A sandbox requer Linux x86_64, Go 1.20+, root e cgroup v2 com `cpu`, `memory` e `pids` habilitados, além de mount namespaces e seccomp-bpf. Ela falha fechada se não puder aplicar esses controles e só escuta em loopback. Veja `docs/SANDBOX.md` para requisitos, limites e implantação.
 
 ```bash
-sudo ./sandbox/sandbox -addr 127.0.0.1:9876
+cd sandbox && go build -o sandbox ./cmd/sandbox
+export ZEUS_SANDBOX_AUTH_TOKEN="$(openssl rand -hex 32)"
+# Configure o mesmo token no ambiente do Zeus antes de usar a sandbox.
+sudo -E ./sandbox -addr 127.0.0.1:9876
 ```
 
 ## Documentação

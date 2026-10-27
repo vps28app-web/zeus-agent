@@ -2,6 +2,7 @@ package runner
 
 import (
 	"fmt"
+	"runtime"
 	"unsafe"
 
 	"golang.org/x/sys/unix"
@@ -112,6 +113,7 @@ var allowedSyscalls = []int{
 	unix.SYS_RENAMEAT,
 	unix.SYS_RENAMEAT2,
 	unix.SYS_RMDIR,
+	unix.SYS_GETUID,
 	unix.SYS_GETEUID,
 	unix.SYS_GETGID,
 	unix.SYS_GETEGID,
@@ -157,23 +159,29 @@ func bpfStmt(code uint16, k uint32) unix.SockFilter {
 	return unix.SockFilter{Code: code, K: k}
 }
 
-// loadArch loads the architecture ID for seccomp.
-func loadArch() uint32 {
-	// AUDIT_ARCH_X86_64
-	return 0xc000003e
+const (
+	auditArchX8664        = 0xc000003e // AUDIT_ARCH_X86_64
+	seccompRetKillProcess = 0x80000000
+)
+
+func auditArchFor(goarch string) (uint32, error) {
+	if goarch != "amd64" {
+		return 0, fmt.Errorf("seccomp sandbox supports Linux amd64 only (got %s)", goarch)
+	}
+	return auditArchX8664, nil
 }
 
-// InstallSeccomp installs a seccomp-bpf filter that denies dangerous syscalls
-// and allows a restricted set of safe syscalls.
-func InstallSeccomp() error {
-	arch := loadArch()
-	var filter []unix.SockFilter
+func buildSeccompFilterForArch(arch uint32) ([]unix.SockFilter, error) {
+	if arch == 0 {
+		return nil, fmt.Errorf("invalid seccomp audit architecture")
+	}
+	filter := make([]unix.SockFilter, 0, 4+2*(len(dangerousSyscalls)+len(allowedSyscalls)))
 
-	// Load arch into accumulator.
+	// Load arch into accumulator; matching the compiled architecture skips the
+	// next instruction, while any mismatch kills the process immediately.
 	filter = append(filter, bpfStmt(unix.BPF_LD+unix.BPF_W+unix.BPF_ABS, 4))
-	// If arch does not match, allow (skip checks).
 	filter = append(filter, unix.SockFilter{Code: unix.BPF_JMP + unix.BPF_JEQ + unix.BPF_K, Jt: 1, Jf: 0, K: arch})
-	filter = append(filter, bpfStmt(unix.BPF_RET+unix.BPF_K, uint32(seccompRetAllow)))
+	filter = append(filter, bpfStmt(unix.BPF_RET+unix.BPF_K, uint32(seccompRetKillProcess)))
 
 	// Load syscall number.
 	filter = append(filter, bpfStmt(unix.BPF_LD+unix.BPF_W+unix.BPF_ABS, 0))
@@ -192,6 +200,20 @@ func InstallSeccomp() error {
 
 	// Default: deny with ENOSYS.
 	filter = append(filter, bpfStmt(unix.BPF_RET+unix.BPF_K, uint32(seccompRetErrno|38)))
+	return filter, nil
+}
+
+// InstallSeccomp installs a seccomp-bpf filter that denies dangerous syscalls
+// and allows a restricted set of safe syscalls.
+func InstallSeccomp() error {
+	arch, err := auditArchFor(runtime.GOARCH)
+	if err != nil {
+		return err
+	}
+	filter, err := buildSeccompFilterForArch(arch)
+	if err != nil {
+		return err
+	}
 
 	prog := unix.SockFprog{
 		Len:    uint16(len(filter)),

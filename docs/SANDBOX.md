@@ -1,78 +1,56 @@
 # Sandbox Go do Zeus
 
-## Visão geral
+A sandbox é um servidor HTTP em Go; o harness Python envia comandos para ele. O endpoint de execução aceita apenas requisições locais e não tem fallback para execução no host.
 
-A sandbox é um servidor HTTP escrito em Go que executa comandos shell em processos isolados. O harness Python se comunica com ela via HTTP.
+## Requisitos de execução
 
-## Estrutura
+- Linux x86_64 (amd64) e Go 1.20 ou superior para compilar.
+- Servidor iniciado como root.
+- cgroup v2 com os controladores `cpu`, `memory` e `pids` disponíveis e habilitados; os grupos de execução também precisam oferecer `cgroup.kill`.
+- Permissões de kernel para mount namespaces, chroot e seccomp-bpf.
 
-```
-sandbox/
-├── cmd/sandbox/main.go     # entry point do servidor
-├── internal/server/server.go # handlers HTTP
-└── internal/runner/runner.go # execução isolada
-```
+Se um desses mecanismos obrigatórios não puder ser aplicado, o Zeus recusa o comando. Não use `sudoers` com `NOPASSWD` amplo para este binário; prefira o serviço systemd fornecido e restrinja quem pode controlá-lo.
 
 ## Compilar
 
 ```bash
-cd /home/vps28/Documentos/Dev/Zeus/sandbox
-go build -buildvcs=false ./cmd/sandbox
+cd /caminho/para/Zeus/sandbox
+go build -o sandbox ./cmd/sandbox
 ```
 
-## Executar
+O servidor rejeita endereços que não sejam IPs de loopback literais. Para acesso remoto, mantenha-o no loopback e use um proxy reverso com TLS e autenticação.
 
-Privilégios de root são obrigatórios para executar comandos. Sem root, o servidor pode iniciar e responder a `GET /health`, mas recusa `POST /run`; executar payloads no host sem chroot não é considerado um modo sandbox seguro.
-
-### Opção 1: com sudo (hardening completo)
+O token bearer é obrigatório: o servidor se recusa a iniciar sem `ZEUS_SANDBOX_AUTH_TOKEN`. Configure o mesmo valor no ambiente do serviço e do processo Zeus. Para iniciar manualmente:
 
 ```bash
-sudo ./sandbox -addr 127.0.0.1:9876
+export ZEUS_SANDBOX_AUTH_TOKEN="$(openssl rand -hex 32)"
+# Configure esse mesmo valor no .env do Zeus.
+sudo -E ./sandbox -addr 127.0.0.1:9876
 ```
 
-Para rodar sem digitar senha, crie `/etc/sudoers.d/zeus-sandbox`:
+O serviço systemd fornecido executa a cópia root-owned em `/usr/local/lib/zeus/sandbox` e lê `ZEUS_SANDBOX_AUTH_TOKEN` de `/etc/zeus/sandbox.env`. `scripts/install-systemd.sh` instala o binário protegido e copia somente o token para o arquivo, com permissões `600`; o mesmo valor permanece no `.env` do Zeus. Para instalação manual, configure um `EnvironmentFile` protegido ou um drop-in com `systemctl edit`; nunca publique o token.
 
-```sudoers
-vps28 ALL=(root) NOPASSWD: /home/vps28/Documentos/Dev/Zeus/sandbox/sandbox
-```
-
-## Endpoints
+## API e limites
 
 - `GET /health`
-- `POST /run` — payload JSON: `{ "command": "...", "timeout_sec": 30, "memory_mb": 128, "cpu_pct": 50 }`
+- `POST /run` — JSON: `{ "command": "echo hello", "timeout_sec": 30, "memory_mb": 128, "cpu_pct": 50 }`
 
-## Uso pelo Zeus
+Limites máximos por execução: 300 segundos, 4096 MiB, 100% de CPU e 256 processos. Os valores zero selecionam os padrões (30 segundos, 128 MiB, 50% e 64 processos). A saída é limitada a 512 KiB por stream; no máximo quatro comandos rodam simultaneamente. O corpo HTTP é limitado a 64 KiB.
 
-A ferramenta `run_sandboxed` está disponível no agente. Exemplo:
+`work_dir` não é aceito: cada execução recebe um diretório temporário privado, removido ao terminar. Transferência de arquivos ainda não está implementada.
 
-```bash
-python -m zeus.cli -q "execute run_sandboxed with command 'echo hello from sandbox'"
-```
+## Fronteiras de isolamento
 
-## Isolamento atual (com root)
+- Mount, PID, network, IPC e UTS namespaces.
+- Mount namespace privado obrigatório; falha em torná-lo privado interrompe a execução.
+- Chroot em tmpfs; `/etc` do host não é montado. Binários e bibliotecas são montados read-only, `nosuid` e `nodev`.
+- O payload perde grupos suplementares e roda como `nobody`.
+- Seccomp-bpf é obrigatório, falha fechada e, nesta versão, só aceita amd64.
+- cgroups v2 por execução aplicam memória, quota de CPU e limite de PIDs; processos restantes são encerrados no cleanup.
+- A allowlist valida a sintaxe shell como camada adicional, mas não substitui as barreiras do kernel.
 
-- **chroot** em tmpfs com binários essenciais montados read-only.
-- **Namespaces**: mount, PID, network, IPC, UTS.
-- **cgroups v2**: limites de memória e peso de CPU.
-- **rede bloqueada** por padrão (CLONE_NEWNET sem configuração de interface).
-- ambiente limpo sem variáveis do host.
+A sandbox reduz o risco, mas não é uma barreira absoluta contra vulnerabilidades do kernel. Execute o daemon apenas em máquinas confiáveis e mantenha o kernel atualizado.
 
-## Testes validados
+## Verificação
 
-- `echo hello && whoami && pwd && ls /` — executa dentro do chroot; o payload roda como `nobody`.
-- `curl http://example.com` — bloqueado (sem rede).
-- `rm -rf /tmp/...` — executa dentro do tmpfs isolado.
-- `cat /etc/passwd` — vê apenas a cópia read-only dentro do chroot.
-
-## Notas de segurança
-
-- Root é obrigatório para executar; sem root, `POST /run` é recusado.
-- A allowlist usa AST shell para validar cada comando explícito em pipes/listas e rejeita nomes dinâmicos e caminhos de executáveis.
-- A allowlist é uma camada adicional: binários permitidos ainda podem iniciar subprocessos; chroot/namespaces/seccomp são a fronteira principal.
-- O payload roda como `nobody` no chroot. Ainda existe risco de vulnerabilidade do kernel; a sandbox não é uma barreira absoluta.
-
-## Próximos passos
-
-1. Tornar a instalação de seccomp obrigatória (hoje uma falha é registrada e a execução continua).
-2. Suporte a upload/download de arquivos na sandbox.
-3. Empacotar como serviço systemd.
+`go test ./...` cobre a lógica de validação, filtros, limites e handlers. Isso não substitui testes de integração privilegiados no host de implantação: antes de produção, valide mount/chroot/seccomp/cgroups com root em Linux amd64 e confirme que o serviço recusa execução quando qualquer requisito falta.

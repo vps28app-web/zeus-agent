@@ -99,6 +99,14 @@ fi
 echo "[5/6] Configurando ambiente..."
 
 ENV_FILE="$INSTALL_DIR/.env"
+umask 077
+if [[ -L "$ENV_FILE" ]]; then
+    echo "Refusing to write credentials through a symlink: $ENV_FILE"
+    exit 1
+fi
+if [[ -f "$ENV_FILE" ]]; then
+    chmod 600 "$ENV_FILE"
+fi
 if [[ ! -f "$ENV_FILE" ]]; then
     cat > "$ENV_FILE" << 'EOF'
 # Zeus Agent Harness — configuração
@@ -120,6 +128,19 @@ EOF
 else
     echo "  .env já existe — não sobrescreveu"
 fi
+
+SANDBOX_TOKEN="$("$INSTALL_DIR/.venv/bin/python" -c 'from dotenv import dotenv_values; import sys; print(dotenv_values(sys.argv[1]).get("ZEUS_SANDBOX_AUTH_TOKEN") or "")' "$ENV_FILE")"
+if [[ -z "$SANDBOX_TOKEN" ]]; then
+    SANDBOX_TOKEN="$("$INSTALL_DIR/.venv/bin/python" -c 'import secrets; print(secrets.token_hex(32))')"
+    printf '\nZEUS_SANDBOX_AUTH_TOKEN=%s\n' "$SANDBOX_TOKEN" >> "$ENV_FILE"
+fi
+if [[ ! "$SANDBOX_TOKEN" =~ ^[0-9a-fA-F]{64}$ ]]; then
+    echo "ZEUS_SANDBOX_AUTH_TOKEN precisa ser 64 caracteres hexadecimais (32 bytes aleatórios)."
+    exit 1
+fi
+chmod 600 "$ENV_FILE"
+unset SANDBOX_TOKEN
+echo "  token de autenticação da sandbox configurado"
 
 # --- Criar comando 'zeus' no PATH ---
 echo "[6/6] Criando comando 'zeus'..."
@@ -151,11 +172,11 @@ echo "  ZEUS_HOME: $INSTALL_DIR"
 echo "  comando:   $WRAPPER"
 echo ""
 echo "Próximos passos:"
-echo "  1. Edite $ENV_FILE e adicione sua API key"
+echo "  1. Edite $ENV_FILE e adicione sua API key (o token da sandbox foi gerado)"
 echo "  2. (Opcional) Compile a sandbox Go:"
 echo "       cd $INSTALL_DIR/sandbox && go build -o sandbox ./cmd/sandbox"
-echo "  3. (Opcional) Inicie a sandbox:"
-echo "       sudo $INSTALL_DIR/sandbox/sandbox -addr 127.0.0.1:9876"
+echo "  3. (Opcional) Instale e inicie os serviços systemd (o token da sandbox foi gerado):"
+echo "       sudo $INSTALL_DIR/scripts/install-systemd.sh"
 echo "  4. Execute:"
 echo "       $WRAPPER"
 echo ""

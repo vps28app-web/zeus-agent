@@ -126,7 +126,7 @@ def _write_and_url(http_server, filename: str, content: str) -> str:
 
 
 def test_find_chrome_returns_path(chrome_binary):
-    assert chrome_binary and "chrome" in chrome_binary.lower()
+    assert chrome_binary and "chrome" in str(chrome_binary).lower()
 
 
 def test_cdp_client_navigates_and_evaluates(cdp_client, http_server):

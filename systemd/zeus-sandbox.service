@@ -4,7 +4,8 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/home/vps28/Documentos/Dev/Zeus/sandbox/sandbox -addr 127.0.0.1:9876
+EnvironmentFile=/etc/zeus/sandbox.env
+ExecStart=/usr/local/lib/zeus/sandbox -addr 127.0.0.1:9876
 Restart=always
 RestartSec=5
 User=root

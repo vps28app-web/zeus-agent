@@ -48,3 +48,14 @@ jobs:
       - name: Test sandbox
         working-directory: ./sandbox
         run: go test ./...
+
+  sandbox-integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - name: Run privileged sandbox integration test
+        working-directory: ./sandbox
+        run: sudo env "PATH=$PATH" go test ./internal/runner -run '^TestSandboxExecutionIsIsolated$' -v -count=1

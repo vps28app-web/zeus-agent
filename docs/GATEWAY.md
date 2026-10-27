@@ -17,7 +17,7 @@ ZEUS_TELEGRAM_ALLOWED_CHAT_IDS=123456789
 3. Inicie o gateway:
 
 ```bash
-cd /home/vps28/Documentos/Dev/Zeus
+cd /caminho/para/Zeus
 source .venv/bin/activate
 python -m zeus.gateway --platform telegram
 ```
@@ -37,7 +37,7 @@ O WhatsApp usa uma ponte Node.js com Baileys + um gateway Python que se comunica
 1. Instale as dependências e construa a ponte:
 
 ```bash
-cd /home/vps28/Documentos/Dev/Zeus/gateway/whatsapp/baileys
+cd /caminho/para/Zeus/gateway/whatsapp/baileys
 npm install
 npm run build
 ```

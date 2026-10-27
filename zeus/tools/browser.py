@@ -13,7 +13,7 @@ import tempfile
 import time
 import urllib.request
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 from urllib.parse import urlparse
 
 from zeus.core.registry import register_tool
@@ -28,28 +28,48 @@ def _is_url_allowed(url: str) -> bool:
         return False
 
 
-def _find_chrome() -> Optional[str]:
-    """Locate a Chrome/Chromium binary in PATH."""
+def _find_chrome(user_data_dir: Optional[Path] = None) -> Optional[Union[str, List[str]]]:
+    """Locate a Chrome/Chromium executable or a narrowly scoped Flatpak prefix."""
     candidates = ["google-chrome", "chromium", "chromium-browser", "chrome"]
     for name in candidates:
-        try:
-            result = subprocess.run(["which", name], capture_output=True, text=True)
-            if result.returncode == 0:
-                return result.stdout.strip()
-        except Exception:
-            continue
+        path = shutil.which(name)
+        if path:
+            return path
+
+    flatpak = shutil.which("flatpak")
+    if not flatpak:
+        return None
+    try:
+        result = subprocess.run(
+            [flatpak, "list", "--app", "--columns=application"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode != 0:
+            return None
+        installed = set(result.stdout.splitlines())
+        for app_id in ("com.google.Chrome", "org.chromium.Chromium"):
+            if app_id in installed:
+                args = [flatpak, "run"]
+                if user_data_dir is not None:
+                    # Grant access only to this browser's profile, never all of /tmp.
+                    args.append(f"--filesystem={user_data_dir.resolve()}")
+                return [*args, app_id]
+    except Exception:
+        return None
     return None
 
 
 def _start_chrome(user_data_dir: Path, port: int = 9222) -> subprocess.Popen:
     """Launch headless Chrome with remote debugging enabled."""
-    binary = _find_chrome()
-    if not binary:
-        raise RuntimeError("Chrome/Chromium not found in PATH")
-
     user_data_dir.mkdir(parents=True, exist_ok=True)
-    args = [
-        binary,
+    binary = _find_chrome(user_data_dir)
+    if not binary:
+        raise RuntimeError("Chrome/Chromium not found in PATH or Flatpak")
+
+    args = [binary] if isinstance(binary, str) else list(binary)
+    args.extend([
         f"--remote-debugging-port={port}",
         "--remote-allow-origins=*",
         f"--user-data-dir={user_data_dir}",
@@ -62,7 +82,7 @@ def _start_chrome(user_data_dir: Path, port: int = 9222) -> subprocess.Popen:
         "--no-first-run",
         "--no-default-browser-check",
         "about:blank",
-    ]
+    ])
     return subprocess.Popen(
         args,
         stdout=subprocess.DEVNULL,
