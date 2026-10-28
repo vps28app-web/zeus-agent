@@ -7,6 +7,16 @@ on:
     branches: [main]
 
 jobs:
+  npm-installer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Test npm installer
+        run: npm run test:installer
+
   python:
     runs-on: ubuntu-latest
     strategy:

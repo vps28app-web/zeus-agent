@@ -1,0 +1,26 @@
+{
+  "name": "zeus-agent-installer",
+  "version": "0.1.0",
+  "description": "Interactive npm bootstrap installer for the Zeus Agent and Linux sandbox",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "bin": {
+    "zeus-install": "scripts/npm-install.cjs"
+  },
+  "scripts": {
+    "install:zeus": "node scripts/npm-install.cjs",
+    "test:installer": "node --test scripts/npm-install.test.cjs"
+  },
+  "files": [
+    "scripts/npm-install.cjs",
+    "scripts/npm-install-lib.cjs",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vps28app-web/zeus-agent.git"
+  }
+}

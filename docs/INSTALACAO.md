@@ -28,6 +28,24 @@ O instalador roda como usuário normal e:
 
 O instalador não instala pacotes do sistema, não ativa serviços systemd e não solicita credenciais. Se `~/.local/bin` não estiver no `PATH`, inclua esse diretório ou use diretamente `.venv/bin/zeus`.
 
+## Instalação completa com npm
+
+Em Debian/Ubuntu amd64 com Go 1.20+ disponível nos repositórios apt, a alternativa npm automatiza os pré-requisitos de sistema, a instalação Python, a compilação e o serviço privilegiado da sandbox:
+
+```bash
+npm run install:zeus
+```
+
+Execute o comando na raiz do checkout; não é necessário rodar `npm install`. Para iniciar sem clonar manualmente:
+
+```bash
+npx --yes --package=git+https://github.com/vps28app-web/zeus-agent.git zeus-install
+```
+
+Requer Node.js 18+, npm e Git. O instalador pergunta antes de instalar `git`, Python/venv e Go via apt; depois executa o instalador normal, solicita autorização local para instalar e iniciar `zeus-sandbox.service`, verifica se o serviço ficou ativo e abre `zeus setup` para configurar o provedor. Use `-- --skip-setup` com `npm run install:zeus` para pular a configuração interativa.
+
+Esse fluxo completo não suporta Windows nativo, macOS, Linux ARM ou distribuições fora da família Debian/Ubuntu. A sandbox atual requer Linux amd64, systemd, cgroup v2 e recursos de namespace/seccomp. Não execute o comando como root; a autorização administrativa é solicitada apenas para as etapas privilegiadas.
+
 ### Configurar o provedor
 
 ```bash

@@ -29,6 +29,20 @@ zeus setup
 
 O instalador cria `.venv`, instala o pacote e os comandos `zeus`/`zeus-gateway`, cria a configuração privada em `~/.zeus/.env` e gera o token da sandbox. Em Linux amd64, se Go estiver disponível, também compila a sandbox opcional. Detalhes e alternativas: [`docs/INSTALACAO.md`](docs/INSTALACAO.md).
 
+Em Debian/Ubuntu amd64 com Go 1.20+ disponível nos repositórios apt, também há um fluxo npm que prepara as dependências e instala/inicia a sandbox systemd em uma execução:
+
+```bash
+npm run install:zeus
+```
+
+Ou execute o lançador direto do GitHub, sem clonar manualmente:
+
+```bash
+npx --yes --package=git+https://github.com/vps28app-web/zeus-agent.git zeus-install
+```
+
+Requer Node.js 18+, npm e Git. O instalador pede confirmação antes de instalar pacotes de sistema e solicitar autorização administrativa para o serviço da sandbox.
+
 ## Configuração
 
 A instalação recomendada cria e usa `~/.zeus/.env`; também é possível definir outro `ZEUS_HOME` absoluto. Para instalações antigas, o Zeus ainda pode ler um `.env` na raiz do projeto. Gerencie as variáveis via CLI:

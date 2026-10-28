@@ -15,6 +15,7 @@ build/
 sandbox/rootfs/
 sandbox/sandbox
 gateway/whatsapp/baileys/node_modules/
+/node_modules/
 gateway/whatsapp/baileys/dist/
 *.log
 coverage/
