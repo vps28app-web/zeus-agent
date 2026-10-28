@@ -1,4 +1,6 @@
 .env
+.env.*
+!.env.example
 .zeus-home
 .venv/
 __pycache__/
@@ -7,6 +9,7 @@ __pycache__/
 *.egg-info/
 .zeus_history
 .pytest_cache/
+.ruff_cache/
 dist/
 build/
 sandbox/rootfs/
@@ -15,4 +18,7 @@ gateway/whatsapp/baileys/node_modules/
 gateway/whatsapp/baileys/dist/
 *.log
 coverage/
+.coverage
+.coverage.*
+htmlcov/
 .DS_Store
