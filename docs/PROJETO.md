@@ -85,44 +85,29 @@ O modelo é selecionado por `ZEUS_MODEL`. Os valores padrão são `openrouter` e
 - Node.js/npm apenas para a ponte WhatsApp Baileys.
 - Para executar a sandbox: Linux amd64, root, cgroup v2 com controladores `cpu`, `memory` e `pids`, `cgroup.kill`, namespaces e seccomp-bpf disponíveis.
 
-### Ambiente Python
+### Instalação recomendada
 
 ```bash
-git clone git@github.com:vps28app-web/zeus-agent.git
+git clone https://github.com/vps28app-web/zeus-agent.git
 cd zeus-agent
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -e '.[dev]'
-cp .env.example .env
-```
-
-Edite `.env` e configure as credenciais do provedor escolhido. Não publique esse arquivo nem coloque chaves reais no Git. A instalação editável cria os comandos `zeus` e `zeus-gateway`.
-
-Para primeira configuração interativa:
-
-```bash
+./scripts/install.sh
 zeus setup
 ```
 
-Alternativamente, execute `python -m zeus.cli` e configure o modelo com `/models` ou `/config`.
+O instalador roda como usuário normal, cria `.venv`, instala os entry points Python, prepara `~/.zeus/.env` com permissões privadas e gera o token da sandbox. Não instala pacotes de sistema nem habilita serviços systemd automaticamente. O guia completo está em [INSTALACAO.md](INSTALACAO.md).
+
+Para configurar o provedor depois da instalação, use `zeus setup`; na CLI interativa, `/models` troca provedor/modelo e `/config set NOME_DA_CHAVE` abre entrada mascarada para credenciais.
 
 ### Sandbox opcional
+
+O instalador compila a sandbox quando Go está disponível em Linux amd64. Para compilar manualmente:
 
 ```bash
 cd sandbox
 go build -o sandbox ./cmd/sandbox
 ```
 
-Para uso local manual, configure `ZEUS_SANDBOX_AUTH_TOKEN` com um token aleatório de 32 bytes e use o mesmo valor no processo Zeus e no servidor. A inicialização sem token é recusada:
-
-```bash
-export ZEUS_SANDBOX_AUTH_TOKEN="$(openssl rand -hex 32)"
-# Configure o mesmo valor no .env carregado pelo Zeus.
-sudo -E ./sandbox -addr 127.0.0.1:9876
-```
-
-Para systemd, `scripts/install-systemd.sh` valida a configuração, instala a cópia do binário em `/usr/local/lib/zeus/sandbox` como `root:root`, guarda apenas o token em `/etc/zeus/sandbox.env` com modo `600` e instala as units. Veja [Sandbox](SANDBOX.md) antes de habilitar a execução privilegiada.
+A implantação do serviço privilegiado é uma etapa separada. Consulte [SANDBOX.md](SANDBOX.md) antes de iniciar manualmente ou instalar as units systemd.
 
 ## Persistência e diretórios
 

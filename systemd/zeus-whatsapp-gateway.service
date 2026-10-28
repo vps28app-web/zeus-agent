@@ -7,6 +7,7 @@ Wants=zeus-whatsapp-bridge.service
 Type=simple
 ExecStart=/home/vps28/Documentos/Dev/Zeus/.venv/bin/python -m zeus.gateway --platform whatsapp
 Environment="ZEUS_GATEWAY_PLATFORM=whatsapp"
+Environment="ZEUS_HOME=/home/vps28/.zeus"
 EnvironmentFile=/home/vps28/.zeus/.env
 WorkingDirectory=/home/vps28/Documentos/Dev/Zeus
 Restart=always

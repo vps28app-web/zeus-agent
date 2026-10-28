@@ -18,19 +18,20 @@ zeus/
 
 ## Instalação
 
-```bash
-cd /caminho/para/Zeus
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+Em Linux/macOS com Python 3.8+ e Git, clone o repositório e execute o instalador sem `sudo`:
 
-# (opcional) compilar sandbox Go
-cd sandbox && go build -o sandbox ./cmd/sandbox && cd ..
+```bash
+git clone https://github.com/vps28app-web/zeus-agent.git
+cd zeus-agent
+./scripts/install.sh
+zeus setup
 ```
+
+O instalador cria `.venv`, instala o pacote e os comandos `zeus`/`zeus-gateway`, cria a configuração privada em `~/.zeus/.env` e gera o token da sandbox. Em Linux amd64, se Go estiver disponível, também compila a sandbox opcional. Detalhes e alternativas: [`docs/INSTALACAO.md`](docs/INSTALACAO.md).
 
 ## Configuração
 
-Crie `.env` na raiz do projeto ou use `~/.zeus/.env`. Você pode gerenciar variáveis via CLI:
+A instalação recomendada cria e usa `~/.zeus/.env`; também é possível definir outro `ZEUS_HOME` absoluto. Para instalações antigas, o Zeus ainda pode ler um `.env` na raiz do projeto. Gerencie as variáveis via CLI:
 
 ```bash
 # Ver configuração atual
@@ -130,16 +131,12 @@ schedule_task(
 
 A sandbox requer Linux x86_64, Go 1.20+, root e cgroup v2 com `cpu`, `memory` e `pids` habilitados, além de mount namespaces e seccomp-bpf. Ela falha fechada se não puder aplicar esses controles e só escuta em loopback. Veja `docs/SANDBOX.md` para requisitos, limites e implantação.
 
-```bash
-cd sandbox && go build -o sandbox ./cmd/sandbox
-export ZEUS_SANDBOX_AUTH_TOKEN="$(openssl rand -hex 32)"
-# Configure o mesmo token no ambiente do Zeus antes de usar a sandbox.
-sudo -E ./sandbox -addr 127.0.0.1:9876
-```
+Para instalação persistente, use o instalador systemd documentado em [`docs/INSTALACAO.md`](docs/INSTALACAO.md). Ele copia a sandbox para uma localização root-owned; execute-o apenas com uma revisão confiável e limpa do Git. Evite iniciar manualmente como root um binário dentro do checkout editável.
 
 ## Documentação
 
-- `docs/PROJETO.md` — documentação completa: visão geral, arquitetura, instalação, configuração e segurança
+- `docs/PROJETO.md` — visão geral e arquitetura de alto nível
+- `docs/INSTALACAO.md` — instalação local e systemd passo a passo
 - `docs/ARCHITECTURE.md` — componentes internos
 - `docs/USAGE.md` — uso completo
 - `docs/TOOLS.md` — todas as 50 ferramentas
