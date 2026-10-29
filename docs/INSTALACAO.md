@@ -139,6 +139,7 @@ O launcher é estável: ele só resolve o caminho da instalação e a executa, e
 
 ## Resolução de problemas
 
+- **`npm error code ENOENT ... Could not read package.json`:** você rodou `npm run install:zeus` fora do checkout — `npm run` sempre exige o `package.json` do projeto no diretório atual. Ou entre no checkout antes (`cd zeus-agent`), ou use o comando equivalente que funciona de qualquer diretório: `zeus-install` (instalado globalmente) ou `npx --yes --package=git+https://github.com/vps28app-web/zeus-agent.git zeus-install`.
 - **`python3 -m venv` falha:** instale o pacote de virtualenv da sua distribuição (por exemplo, `python3-venv` no Debian/Ubuntu).
 - **`zeus: command not found`:** confirme que `~/.local/bin` está no `PATH` ou use `.venv/bin/zeus`; ou instale o launcher global npm (seção acima).
 - **`Erro: Nenhuma instalação do Zeus encontrada` (launcher npm):** o launcher não encontra um `.venv` válido. Rode `scripts/install.sh` em um checkout, ou o fluxo npm completo; verifique `~/.zeus/install-dir` ou defina `ZEUS_INSTALL_DIR`. Rode `npm ls -g zeus-agent-installer` para confirmar que o launcher está instalado.
