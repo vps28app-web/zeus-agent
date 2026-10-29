@@ -69,7 +69,7 @@ Para usar chave de API em vez de OAuth, defina `ZEUS_PROVIDER=google_api` e conf
 
 | Variável | Descrição |
 |---|---|
-| `ZEUS_PROVIDER` | Provedor LLM: `opencode_go`, `openrouter`, `openai`, `anthropic`, `google`, `deepseek`, `mistral`, `ollama` |
+| `ZEUS_PROVIDER` | `opencode_go`, `openrouter`, `openai`, `anthropic`, `google`, `deepseek`, `mistral`, `ollama`, `groq`, `xai`, `together`, `fireworks` ou `cohere` |
 | `ZEUS_MODEL` | Modelo específico do provedor |
 | `OPENCODE_GO_API_KEY` | Chave do OpenCode Go |
 | `OPENROUTER_API_KEY` | Chave do OpenRouter |
@@ -80,6 +80,11 @@ Para usar chave de API em vez de OAuth, defina `ZEUS_PROVIDER=google_api` e conf
 | `GOOGLE_OAUTH_CLIENT_SECRET` | Client secret OAuth para autenticação browser do Gemini (provider `google_auth`) |
 | `DEEPSEEK_API_KEY` | Chave do DeepSeek |
 | `MISTRAL_API_KEY` | Chave do Mistral |
+| `GROQ_API_KEY` | Chave da Groq |
+| `XAI_API_KEY` | Chave da xAI |
+| `TOGETHER_API_KEY` | Chave da Together AI |
+| `FIREWORKS_API_KEY` | Chave da Fireworks AI |
+| `COHERE_API_KEY` | Chave da Cohere |
 | `ZEUS_SANDBOX_URL` | URL do sandbox Go (padrão: `http://127.0.0.1:9876`) |
 
 ## Programático

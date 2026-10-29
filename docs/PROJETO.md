@@ -73,6 +73,11 @@ O router reconhece os seguintes identificadores:
 | `google_auth` | OAuth via navegador, iniciado com `/auth google`. |
 | `deepseek` | `DEEPSEEK_API_KEY` |
 | `mistral` | `MISTRAL_API_KEY` |
+| `groq` | `GROQ_API_KEY`; endpoint OpenAI-compatible. |
+| `xai` | `XAI_API_KEY`; endpoint OpenAI-compatible. |
+| `together` | `TOGETHER_API_KEY`; endpoint OpenAI-compatible. |
+| `fireworks` | `FIREWORKS_API_KEY`; endpoint OpenAI-compatible. |
+| `cohere` | `COHERE_API_KEY`; API compatibility OpenAI. |
 
 O modelo é selecionado por `ZEUS_MODEL`. Os valores padrão são `openrouter` e `openrouter/auto`; confirme disponibilidade e nomes de modelos junto ao provedor escolhido.
 

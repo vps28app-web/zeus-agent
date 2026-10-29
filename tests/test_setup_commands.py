@@ -21,6 +21,19 @@ def test_setup_command_dispatches_to_full_wizard(monkeypatch):
     assert calls == [True]
 
 
+def test_popular_provider_presets_require_their_own_keys():
+    expected = {
+        "groq": "GROQ_API_KEY",
+        "xai": "XAI_API_KEY",
+        "together": "TOGETHER_API_KEY",
+        "fireworks": "FIREWORKS_API_KEY",
+        "cohere": "COHERE_API_KEY",
+    }
+    for provider, env_key in expected.items():
+        assert setup_commands.MODEL_PRESETS[provider]
+        assert setup_commands.PROVIDER_ENV_VARS[provider] == (env_key,)
+
+
 def test_setup_model_keeps_existing_api_key_without_prompt(monkeypatch, tmp_path, capsys):
     monkeypatch.setenv("ZEUS_HOME", str(tmp_path))
     monkeypatch.setenv("ZEUS_PROVIDER", "opencode_go")

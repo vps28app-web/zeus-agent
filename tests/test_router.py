@@ -22,6 +22,53 @@ def test_providers_dict_is_populated():
     assert "mistral" in router.PROVIDERS
 
 
+@pytest.mark.parametrize(
+    ("provider", "api_key_name", "base_url"),
+    [
+        ("groq", "GROQ_API_KEY", "https://api.groq.com/openai/v1"),
+        ("xai", "XAI_API_KEY", "https://api.x.ai/v1"),
+        ("together", "TOGETHER_API_KEY", "https://api.together.ai/v1"),
+        ("fireworks", "FIREWORKS_API_KEY", "https://api.fireworks.ai/inference/v1"),
+        ("cohere", "COHERE_API_KEY", "https://api.cohere.ai/compatibility/v1"),
+    ],
+)
+def test_new_openai_compatible_providers_send_chat_requests(
+    provider, api_key_name, base_url, monkeypatch
+):
+    monkeypatch.setenv(api_key_name, "test-key-not-a-real-credential")
+    response = MagicMock()
+    response.json.return_value = {"choices": [{"message": {"content": "ok"}}]}
+    with patch("zeus.core.router.requests.post", return_value=response) as post:
+        result = router.PROVIDERS[provider](
+            [{"role": "user", "content": "hello"}],
+            [{"type": "function", "function": {"name": "tool"}}],
+            "example-model",
+        )
+
+    assert result == response.json.return_value
+    args, kwargs = post.call_args
+    assert args[0] == f"{base_url}/chat/completions"
+    assert kwargs["headers"]["Authorization"] == "Bearer test-key-not-a-real-credential"
+    assert kwargs["json"]["model"] == "example-model"
+    assert kwargs["json"]["tools"] == [{"type": "function", "function": {"name": "tool"}}]
+
+
+@pytest.mark.parametrize(
+    ("provider", "api_key_name"),
+    [
+        ("groq", "GROQ_API_KEY"),
+        ("xai", "XAI_API_KEY"),
+        ("together", "TOGETHER_API_KEY"),
+        ("fireworks", "FIREWORKS_API_KEY"),
+        ("cohere", "COHERE_API_KEY"),
+    ],
+)
+def test_new_provider_requires_its_own_api_key(provider, api_key_name, monkeypatch):
+    monkeypatch.delenv(api_key_name, raising=False)
+    with pytest.raises(RuntimeError, match=api_key_name):
+        router.PROVIDERS[provider]([], [], "example-model")
+
+
 def test_chat_unknown_provider():
     with pytest.raises(ValueError, match="Unknown provider"):
         router.chat([], [], provider="invalid_provider")

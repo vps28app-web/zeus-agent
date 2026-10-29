@@ -8,6 +8,8 @@ from typing import Any, Callable, Dict, List, Optional
 
 import requests
 
+from zeus.core.providers import OPENAI_COMPATIBLE_PROVIDERS
+
 
 def _with_retries(
     fn: Callable[[], Any],
@@ -497,6 +499,61 @@ def mistral_chat(
     return response.json()
 
 
+def openai_compatible_chat(
+    provider: str,
+    messages: List[Dict[str, str]],
+    tools: List[Dict[str, Any]],
+    model: str,
+    stream: bool = False,
+) -> Any:
+    """Call a provider that implements the OpenAI Chat Completions contract."""
+    config = OPENAI_COMPATIBLE_PROVIDERS[provider]
+    api_key_name = config["api_key_env"]
+    api_key = os.getenv(api_key_name)
+    if not api_key:
+        raise RuntimeError(f"{api_key_name} not set")
+
+    response = requests.post(
+        f"{config['base_url'].rstrip('/')}/chat/completions",
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "model": model,
+            "messages": messages,
+            "tools": tools if tools else None,
+            "stream": stream,
+        },
+        timeout=120,
+        stream=stream,
+    )
+    response.raise_for_status()
+    if stream:
+        return response
+    return response.json()
+
+
+def groq_chat(messages, tools, model, stream=False):
+    return openai_compatible_chat("groq", messages, tools, model, stream)
+
+
+def xai_chat(messages, tools, model, stream=False):
+    return openai_compatible_chat("xai", messages, tools, model, stream)
+
+
+def together_chat(messages, tools, model, stream=False):
+    return openai_compatible_chat("together", messages, tools, model, stream)
+
+
+def fireworks_chat(messages, tools, model, stream=False):
+    return openai_compatible_chat("fireworks", messages, tools, model, stream)
+
+
+def cohere_chat(messages, tools, model, stream=False):
+    return openai_compatible_chat("cohere", messages, tools, model, stream)
+
+
 PROVIDERS = {
     "openrouter": openrouter_chat,
     "ollama": ollama_chat,
@@ -508,6 +565,11 @@ PROVIDERS = {
     "google_auth": google_auth_chat,
     "deepseek": deepseek_chat,
     "mistral": mistral_chat,
+    "groq": groq_chat,
+    "xai": xai_chat,
+    "together": together_chat,
+    "fireworks": fireworks_chat,
+    "cohere": cohere_chat,
 }
 
 
@@ -545,6 +607,11 @@ def chat(
                 "google_auth": "OAuth via /auth google",
                 "deepseek": "DEEPSEEK_API_KEY",
                 "mistral": "MISTRAL_API_KEY",
+                "groq": "GROQ_API_KEY",
+                "xai": "XAI_API_KEY",
+                "together": "TOGETHER_API_KEY",
+                "fireworks": "FIREWORKS_API_KEY",
+                "cohere": "COHERE_API_KEY",
             }.get(provider, f"chave de API do provider '{provider}'")
             raise RuntimeError(
                 f"Chave de API não configurada para o provider '{provider}'. "

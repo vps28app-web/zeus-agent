@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from zeus.config.settings import config_path, load_config, save_config
+from zeus.core.providers import OPENAI_COMPATIBLE_PROVIDERS
 from zeus.core.registry import register_tool
 
 
@@ -74,6 +75,12 @@ def get_zeus_config() -> Dict[str, Any]:
         "OPENAI_API_KEY",
         "ANTHROPIC_API_KEY",
         "DEEPSEEK_API_KEY",
+        "MISTRAL_API_KEY",
+        "GROQ_API_KEY",
+        "XAI_API_KEY",
+        "TOGETHER_API_KEY",
+        "FIREWORKS_API_KEY",
+        "COHERE_API_KEY",
         "TELEGRAM_BOT_TOKEN",
     ]
     status = {}
@@ -310,6 +317,31 @@ def fetch_models(provider: str) -> Dict[str, Any]:
             return {"provider": provider, "models": models}
         except Exception as exc:
             return {"error": f"Falha ao listar modelos OpenCode Go: {exc}"}
+
+    if provider in OPENAI_COMPATIBLE_PROVIDERS:
+        config = OPENAI_COMPATIBLE_PROVIDERS[provider]
+        if not config["list_models"]:
+            return {"error": f"{provider} usa a lista estática de modelos Zeus."}
+        api_key_name = config["api_key_env"]
+        api_key = os.getenv(api_key_name)
+        if not api_key:
+            return {"error": f"{api_key_name} não configurada."}
+        try:
+            response = requests.get(
+                f"{config['base_url'].rstrip('/')}/models",
+                headers={"Authorization": f"Bearer {api_key}"},
+                timeout=30,
+            )
+            response.raise_for_status()
+            data = response.json()
+            models = sorted(
+                item.get("id", "")
+                for item in data.get("data", [])
+                if item.get("id")
+            )
+            return {"provider": provider, "models": models}
+        except Exception as exc:
+            return {"error": f"Falha ao listar modelos {provider}: {exc}"}
 
     return {"error": f"Provider '{provider}' n\u00e3o suportado para listagem din\u00e2mica."}
 

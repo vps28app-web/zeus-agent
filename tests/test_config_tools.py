@@ -1,8 +1,10 @@
 """Unit tests for zeus/tools/config_tools.py."""
 
+from unittest.mock import MagicMock, patch
 
 from zeus.tools.config_tools import (
     _upsert_env,
+    fetch_models,
     get_zeus_config,
     list_available_models,
     update_zeus_config,
@@ -20,6 +22,30 @@ def test_get_zeus_config(tmp_path, monkeypatch):
     assert result["zeus_model"] == "gpt-4o"
     assert "OPENAI_API_KEY" in result["api_keys_status"]
     assert "-key" in result["api_keys_status"]["OPENAI_API_KEY"]
+
+
+def test_get_zeus_config_reports_new_provider_key_status(monkeypatch):
+    for key in ("GROQ_API_KEY", "XAI_API_KEY", "TOGETHER_API_KEY", "FIREWORKS_API_KEY", "COHERE_API_KEY"):
+        monkeypatch.delenv(key, raising=False)
+    result = get_zeus_config()
+    for key in ("GROQ_API_KEY", "XAI_API_KEY", "TOGETHER_API_KEY", "FIREWORKS_API_KEY", "COHERE_API_KEY"):
+        assert result["api_keys_status"][key] == "Não configurado"
+
+
+def test_fetch_models_uses_openai_compatible_provider_metadata(monkeypatch):
+    from zeus.core.providers import OPENAI_COMPATIBLE_PROVIDERS
+
+    for provider in ("groq", "xai", "together"):
+        config = OPENAI_COMPATIBLE_PROVIDERS[provider]
+        monkeypatch.setenv(config["api_key_env"], "test-key-not-a-real-credential")
+        response = MagicMock()
+        response.json.return_value = {"data": [{"id": "live-model"}]}
+        with patch("requests.get", return_value=response) as get:
+            result = fetch_models(provider)
+        assert result == {"provider": provider, "models": ["live-model"]}
+        args, kwargs = get.call_args
+        assert args[0] == f"{config['base_url']}/models"
+        assert kwargs["headers"]["Authorization"] == "Bearer test-key-not-a-real-credential"
 
 
 def test_update_zeus_config(tmp_path, monkeypatch):

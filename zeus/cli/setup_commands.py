@@ -10,6 +10,7 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.formatted_text import ANSI
 
+from zeus.core.providers import OPENAI_COMPATIBLE_PROVIDERS
 from zeus.tools.config_tools import fetch_models
 
 MODEL_PRESETS = {
@@ -58,6 +59,21 @@ MODEL_PRESETS = {
         ("qwen2.5-coder", "Qwen 2.5 Coder"),
         ("phi4", "Phi-4"),
     ],
+    "groq": [
+        ("openai/gpt-oss-120b", "GPT-OSS 120B via Groq"),
+    ],
+    "xai": [
+        ("grok-4.7", "Grok 4.7"),
+    ],
+    "together": [
+        ("openai/gpt-oss-120b", "GPT-OSS 120B via Together AI"),
+    ],
+    "fireworks": [
+        ("accounts/fireworks/models/glm-5p3-flash", "GLM 5.3 Flash via Fireworks"),
+    ],
+    "cohere": [
+        ("command-a-plus-05-2026", "Command A Plus"),
+    ],
 }
 
 PROVIDER_ENV_VARS = {
@@ -70,6 +86,10 @@ PROVIDER_ENV_VARS = {
     "deepseek": ("DEEPSEEK_API_KEY",),
     "mistral": ("MISTRAL_API_KEY",),
     "ollama": (),
+    **{
+        provider: (config["api_key_env"],)
+        for provider, config in OPENAI_COMPATIBLE_PROVIDERS.items()
+    },
 }
 
 

@@ -341,6 +341,9 @@ def _load_env(override: bool = False) -> None:
     """Load .env from ~/.zeus/.env or the project root if present."""
     zeus_home = Path(os.getenv("ZEUS_HOME", os.path.expanduser("~/.zeus")))
     paths = [zeus_home / ".env", Path.cwd() / ".env"]
+    install_dir = os.getenv("ZEUS_INSTALL_DIR")
+    if install_dir:
+        paths.append(Path(install_dir) / ".env")
     for env_file in paths:
         if env_file.exists():
             load_dotenv(env_file, override=override)
