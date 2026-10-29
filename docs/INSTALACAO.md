@@ -9,6 +9,18 @@ Este guia instala o Zeus a partir de um checkout Git. A instalação Python não
 - Go 1.20+ é opcional para compilar a sandbox. Para instalar o serviço systemd, Go é necessário: o instalador compila a sandbox a partir do snapshot do commit limpo, ignorando qualquer binário pré-compilado no checkout.
 - Node.js 18+ e npm são opcionais: necessários para o instalador npm completo, para o launcher global `zeus` via npm (abaixo) e para compilar a ponte WhatsApp Baileys.
 
+## Escolha o tipo de instalação
+
+Há duas formas de instalar o aplicativo e uma opção separada para instalar apenas os comandos globais:
+
+| Opção | Comando de instalação | Onde fica o código | Como iniciar a remoção |
+|---|---|---|---|
+| Checkout Git (recomendado) | `./scripts/install.sh` | Na pasta em que você clonou o repositório | Entre no checkout e rode `./scripts/uninstall.sh` |
+| Instalação completa automatizada | `npx --yes --package=git+https://github.com/vps28app-web/zeus-agent.git zeus-install` | `~/.local/share/zeus-agent` | `npx --yes --package=git+https://github.com/vps28app-web/zeus-agent.git zeus-uninstall --clone` |
+| Launcher npm global (opcional) | `npm install -g git+https://github.com/vps28app-web/zeus-agent.git` | Instala somente os comandos npm; exige uma instalação do aplicativo já existente | `npm uninstall -g zeus-agent-installer` |
+
+**Importante:** instalar o launcher npm global não instala o aplicativo. A desinstalação padrão também não apaga seus dados nem o código; veja [Desinstalar](#desinstalar) para escolher o que remover.
+
 ## Instalação recomendada
 
 ```bash
@@ -135,26 +147,45 @@ O launcher é estável: ele só resolve o caminho da instalação e a executa, e
 
 ## Desinstalar
 
-O `scripts/uninstall.sh` remove o que o instalador criou no seu usuário: launchers em `~/.local/bin` (só os gerenciados pelo Zeus) e o registro `~/.zeus/install-dir`. Sem um checkout à mão, rode o mesmo comando global via npm, de qualquer diretório:
+Use um dos comandos abaixo, conforme o método de instalação. Rode como usuário normal, sem `sudo`:
 
 ```bash
+# Instalação completa via npx, sem checkout local:
 npx --yes --package=git+https://github.com/vps28app-web/zeus-agent.git zeus-uninstall
-# ou, com o pacote instalado globalmente: zeus-uninstall
+
+# Se o pacote/launcher npm já está instalado globalmente:
+zeus-uninstall
+
+# Instalação feita a partir de um checkout:
+cd /caminho/para/zeus-agent
+./scripts/uninstall.sh
 ```
 
-Dentro de um checkout, o equivalente é `./scripts/uninstall.sh`.
+Sem opções, o desinstalador remove apenas os launchers do Zeus em `~/.local/bin` (sem apagar comandos que não foram criados pelo Zeus) e o registro `~/.zeus/install-dir`. **Ele mantém o código, o ambiente Python, os dados e credenciais, o pacote npm global e os serviços systemd.**
 
-Flags opcionais para ir além, cada uma com confirmação interativa:
+Para apagar também itens adicionais, passe as opções abaixo. Cada remoção destrutiva pede confirmação:
 
-- `--state`: apaga `ZEUS_HOME` (padrão `~/.zeus`) — atenção, contém seu `.env` com chaves de API, banco de dados, memórias e histórico de sessões;
-- `--clone`: apaga o clone npm em `~/.local/share/zeus-agent`;
-- `--venv`: apaga o `.venv` do checkout (o código-fonte fica intacto).
+- `--clone`: apaga o checkout criado pelo instalador npm em `~/.local/share/zeus-agent`;
+- `--state`: apaga `ZEUS_HOME` (padrão `~/.zeus`), incluindo `.env` e chaves de API, banco de dados, memórias e histórico de sessões;
+- `--venv`: apaga somente o `.venv` do checkout; mantém o código-fonte.
 
-O que o script não remove (por design):
+Para remover somente o código e o ambiente Python, mantendo os dados e credenciais em `~/.zeus`:
 
-- **pacote npm global** (comandos `zeus`, `zeus-gateway`, `zeus-install`): `npm uninstall -g zeus-agent-installer`
-- **serviços systemd da sandbox/gateways**, se você os instalou: `sudo systemctl disable --now zeus-sandbox.service`; depois `sudo rm -f /etc/systemd/system/zeus-*.service /etc/zeus/sandbox.env /usr/local/lib/zeus/sandbox` e `sudo systemctl daemon-reload`
-- **o checkout do código-fonte**: é seu; apague com `rm -rf` se quiser.
+```bash
+npx --yes --package=git+https://github.com/vps28app-web/zeus-agent.git zeus-uninstall --clone
+```
+
+Para apagar também os dados e credenciais — cada opção pede confirmação:
+
+```bash
+npx --yes --package=git+https://github.com/vps28app-web/zeus-agent.git zeus-uninstall --clone --state
+```
+
+Para remover também os itens que o desinstalador preserva de propósito:
+
+- **Pacote npm global** (comandos `zeus`, `zeus-gateway`, `zeus-install`, `zeus-uninstall`): `npm uninstall -g zeus-agent-installer`.
+- **Serviços systemd da sandbox/gateways**, se instalados: desative e remova-os manualmente; isso requer privilégios administrativos. Para a sandbox: `sudo systemctl disable --now zeus-sandbox.service`, depois `sudo rm -f /etc/systemd/system/zeus-*.service /etc/zeus/sandbox.env /usr/local/lib/zeus/sandbox` e `sudo systemctl daemon-reload`.
+- **Checkout Git usado na instalação recomendada**: permanece na pasta em que foi clonado; remova essa pasta manualmente somente se não precisar mais do código.
 
 ## Resolução de problemas
 
