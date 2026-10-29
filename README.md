@@ -29,6 +29,18 @@ zeus setup
 
 O instalador cria `.venv`, instala o pacote e os comandos `zeus`/`zeus-gateway`, cria a configuração privada em `~/.zeus/.env` e gera o token da sandbox. Em Linux amd64, se Go estiver disponível, também compila a sandbox opcional. Detalhes e alternativas: [`docs/INSTALACAO.md`](docs/INSTALACAO.md).
 
+### Comando `zeus` global via npm
+
+Depois de instalar (por qualquer fluxo), você pode expor `zeus` e `zeus-gateway` como comandos globais que funcionam em qualquer diretório:
+
+```bash
+npm install -g git+https://github.com/vps28app-web/zeus-agent.git
+# ou, dentro de um checkout: npm install -g .
+zeus --version   # em qualquer diretório
+```
+
+O launcher não instala o Zeus: ele localiza a instalação existente (`ZEUS_INSTALL_DIR`, checkout acima do diretório atual, registro `~/.zeus/install-dir` ou `~/.local/share/zeus-agent`) e a executa preservando o diretório atual como workspace. O `.env` da raiz do checkout continua carregando mesmo executando fora dele. Requer Node 18+; funciona em qualquer plataforma com Node, sem as restrições de Linux amd64 do fluxo completo abaixo.
+
 Em Debian/Ubuntu amd64 com Go 1.20+ disponível nos repositórios apt, também há um fluxo npm que prepara as dependências e instala/inicia a sandbox systemd em uma execução:
 
 ```bash
@@ -42,29 +54,6 @@ npx --yes --package=git+https://github.com/vps28app-web/zeus-agent.git zeus-inst
 ```
 
 Requer Node.js 18+, npm e Git. O instalador pede confirmação antes de instalar pacotes de sistema e solicitar autorização administrativa para o serviço da sandbox.
-
-### Iniciar o Zeus de qualquer diretório
-
-O pacote npm também publica um launcher `zeus`. Instale-o globalmente a partir de um checkout:
-
-```bash
-npm install -g .
-```
-
-Ou direto do GitHub, sem clonar manualmente:
-
-```bash
-npm install -g git+https://github.com/vps28app-web/zeus-agent.git
-```
-
-Depois disso `zeus` (e `zeus-gateway`) funcionam em qualquer diretório: o launcher preserva o diretório atual como workspace e localiza a instalação nesta ordem:
-
-1. `ZEUS_INSTALL_DIR` (variável de ambiente), se válida;
-2. um checkout do Zeus acima do diretório atual;
-3. o registro da instalação em `~/.zeus/install-dir` (gravado por `scripts/install.sh`);
-4. o diretório padrão `~/.local/share/zeus-agent`.
-
-O `scripts/install.sh` também cria launchers equivalentes em `~/.local/bin`. Variáveis de ambiente do `.env` da raiz do checkout continuam disponíveis mesmo executando fora dele (carregadas via `ZEUS_INSTALL_DIR` como último fallback).
 
 ## Configuração
 

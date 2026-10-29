@@ -7,7 +7,7 @@ Este guia instala o Zeus a partir de um checkout Git. A instalação Python não
 - Linux ou macOS com Bash, Git e Python 3.8+.
 - GitHub público: o clone HTTPS não exige conta nem chave SSH.
 - Go 1.20+ é opcional para compilar a sandbox. Para instalar o serviço systemd, Go é necessário: o instalador compila a sandbox a partir do snapshot do commit limpo, ignorando qualquer binário pré-compilado no checkout.
-- Node.js/npm é opcional; necessário apenas para compilar a ponte WhatsApp Baileys.
+- Node.js 18+ e npm são opcionais: necessários para o instalador npm completo, para o launcher global `zeus` via npm (abaixo) e para compilar a ponte WhatsApp Baileys.
 
 ## Instalação recomendada
 
@@ -28,6 +28,24 @@ O instalador roda como usuário normal e:
 
 O instalador não instala pacotes do sistema, não ativa serviços systemd e não solicita credenciais. Se `~/.local/bin` não estiver no `PATH`, inclua esse diretório ou use diretamente `.venv/bin/zeus`. Os launchers preservam o diretório atual: o Zeus executa com seu diretório corrente como workspace. O instalador também grava o caminho da instalação em `~/.zeus/install-dir`, usado pelo launcher npm quando não há checkout acima do diretório atual.
 
+## Comando `zeus` global (npm)
+
+Opcional, sobre uma instalação existente: o pacote npm publica um launcher que expõe `zeus` e `zeus-gateway` como comandos globais que funcionam em qualquer diretório. Ele não instala o Zeus — requer `.venv` criado pelo `scripts/install.sh` (ou pelo fluxo npm completo abaixo).
+
+```bash
+npm install -g git+https://github.com/vps28app-web/zeus-agent.git
+zeus --version   # em qualquer diretório
+```
+
+O launcher preserva o diretório atual como workspace e localiza a instalação nesta ordem:
+
+1. `ZEUS_INSTALL_DIR` (variável de ambiente), se válida;
+2. um checkout do Zeus acima do diretório atual;
+3. o registro da instalação em `~/.zeus/install-dir` (gravado por `scripts/install.sh`);
+4. o diretório padrão `~/.local/share/zeus-agent` (criado pelo fluxo npm completo).
+
+Variáveis do `.env` da raiz do checkout continuam carregando mesmo executando fora dele (via `ZEUS_INSTALL_DIR`, como último fallback). Em um checkout, `npm install -g .` instala o launcher a partir dos fontes locais. Funciona em Linux e macOS; em qualquer plataforma com Node 18+, independente das restrições de Linux amd64 do fluxo completo abaixo.
+
 ## Instalação completa com npm
 
 Em Debian/Ubuntu amd64 com Go 1.20+ disponível nos repositórios apt, a alternativa npm automatiza os pré-requisitos de sistema, a instalação Python, a compilação e o serviço privilegiado da sandbox:
@@ -44,18 +62,7 @@ npx --yes --package=git+https://github.com/vps28app-web/zeus-agent.git zeus-inst
 
 Requer Node.js 18+, npm e Git. O instalador pergunta antes de instalar `git`, Python/venv e Go via apt; depois executa o instalador normal, solicita autorização local para instalar e iniciar `zeus-sandbox.service`, verifica se o serviço ficou ativo e abre `zeus setup` para configurar o provedor. Use `-- --skip-setup` com `npm run install:zeus` para pular a configuração interativa.
 
-Esse fluxo completo não suporta Windows nativo, macOS, Linux ARM ou distribuições fora da família Debian/Ubuntu. A sandbox atual requer Linux amd64, systemd, cgroup v2 e recursos de namespace/seccomp. Não execute o comando como root; a autorização administrativa é solicitada apenas para as etapas privilegiadas.
-
-### Launcher npm do Zeus
-
-O mesmo pacote npm publica o launcher `zeus`, que funciona em qualquer diretório após a instalação:
-
-```bash
-npm install -g git+https://github.com/vps28app-web/zeus-agent.git
-zeus --version
-```
-
-O launcher preserva o diretório atual como workspace e localiza a instalação nesta ordem: `ZEUS_INSTALL_DIR` (se válida), checkout do Zeus acima do diretório atual, registro `~/.zeus/install-dir`, ou `~/.local/share/zeus-agent`. Variáveis do `.env` da raiz do checkout continuam carregando mesmo executando fora dele (via `ZEUS_INSTALL_DIR`).
+Esse fluxo completo não suporta Windows nativo, macOS, Linux ARM ou distribuições fora da família Debian/Ubuntu. A sandbox atual requer Linux amd64, systemd, cgroup v2 e recursos de namespace/seccomp. Não execute o comando como root; a autorização administrativa é solicitada apenas para as etapas privilegiadas. O fluxo completo já instala tudo; não é preciso instalar o launcher global separadamente — o `zeus-install` deixa a instalação registrada em `~/.zeus/install-dir`, então `npm install -g` só é útil para expor o comando em outra máquina de usuário ou shell.
 
 ### Configurar o provedor
 
@@ -122,10 +129,19 @@ git pull --ff-only
 
 A atualização preserva `.env`, `ZEUS_HOME`, o banco de dados e a memória. O instalador recusa caminhos de estado ou credenciais que sejam symlinks e não remove alterações locais do Git.
 
+Se você usa o launcher global npm, atualize-o junto para pegar correções do launcher:
+
+```bash
+npm update -g zeus-agent-installer
+```
+
+O launcher é estável: ele só resolve o caminho da instalação e a executa, então atualizá-lo raramente é urgente.
+
 ## Resolução de problemas
 
 - **`python3 -m venv` falha:** instale o pacote de virtualenv da sua distribuição (por exemplo, `python3-venv` no Debian/Ubuntu).
-- **`zeus: command not found`:** confirme que `~/.local/bin` está no `PATH` ou use `.venv/bin/zeus`.
+- **`zeus: command not found`:** confirme que `~/.local/bin` está no `PATH` ou use `.venv/bin/zeus`; ou instale o launcher global npm (seção acima).
+- **`Erro: Nenhuma instalação do Zeus encontrada` (launcher npm):** o launcher não encontra um `.venv` válido. Rode `scripts/install.sh` em um checkout, ou o fluxo npm completo; verifique `~/.zeus/install-dir` ou defina `ZEUS_INSTALL_DIR`. Rode `npm ls -g zeus-agent-installer` para confirmar que o launcher está instalado.
 - **Sandbox ausente:** instale Go e execute `cd sandbox && go build -o sandbox ./cmd/sandbox` em Linux amd64.
 - **Sandbox recusa inicialização:** configure o token bearer e verifique root, cgroup v2, namespaces e seccomp conforme [SANDBOX.md](SANDBOX.md).
 - **Não use `sudo` no instalador Python:** só `scripts/install-systemd.sh` requer elevação.
