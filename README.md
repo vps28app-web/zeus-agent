@@ -57,6 +57,8 @@ Atenção: `npm run` exige o `package.json` no diretório atual — fora do chec
 
 Requer Node.js 18+, npm e Git. O instalador pede confirmação antes de instalar pacotes de sistema e solicitar autorização administrativa para o serviço da sandbox.
 
+Para remover, use `./scripts/uninstall.sh` no checkout (launchers e registro; flags opcionais para estado, clone npm e `.venv`) e `npm uninstall -g zeus-agent-installer` se instalou o pacote global. Detalhes: [`docs/INSTALACAO.md`](docs/INSTALACAO.md).
+
 ## Configuração
 
 A instalação recomendada cria e usa `~/.zeus/.env`; também é possível definir outro `ZEUS_HOME` absoluto. Para instalações antigas, o Zeus ainda pode ler um `.env` na raiz do projeto. Gerencie as variáveis via CLI:

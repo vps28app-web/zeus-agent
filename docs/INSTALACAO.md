@@ -133,6 +133,26 @@ npm update -g zeus-agent-installer
 
 O launcher é estável: ele só resolve o caminho da instalação e a executa, então atualizá-lo raramente é urgente.
 
+## Desinstalar
+
+O `scripts/uninstall.sh` remove o que o instalador criou no seu usuário: launchers em `~/.local/bin` (só os gerenciados pelo Zeus) e o registro `~/.zeus/install-dir`:
+
+```bash
+./scripts/uninstall.sh
+```
+
+Flags opcionais para ir além, cada uma com confirmação interativa:
+
+- `--state`: apaga `ZEUS_HOME` (padrão `~/.zeus`) — atenção, contém seu `.env` com chaves de API, banco de dados, memórias e histórico de sessões;
+- `--clone`: apaga o clone npm em `~/.local/share/zeus-agent`;
+- `--venv`: apaga o `.venv` do checkout (o código-fonte fica intacto).
+
+O que o script não remove (por design):
+
+- **pacote npm global** (comandos `zeus`, `zeus-gateway`, `zeus-install`): `npm uninstall -g zeus-agent-installer`
+- **serviços systemd da sandbox/gateways**, se você os instalou: `sudo systemctl disable --now zeus-sandbox.service`; depois `sudo rm -f /etc/systemd/system/zeus-*.service /etc/zeus/sandbox.env /usr/local/lib/zeus/sandbox` e `sudo systemctl daemon-reload`
+- **o checkout do código-fonte**: é seu; apague com `rm -rf` se quiser.
+
 ## Resolução de problemas
 
 - **`npm error code ENOENT ... Could not read package.json`:** você rodou `npm run install:zeus` fora do checkout — `npm run` sempre exige o `package.json` do projeto no diretório atual. Ou entre no checkout antes (`cd zeus-agent`), ou use o comando equivalente que funciona de qualquer diretório: `zeus-install` (instalado globalmente) ou `npx --yes --package=git+https://github.com/vps28app-web/zeus-agent.git zeus-install`.
@@ -142,3 +162,4 @@ O launcher é estável: ele só resolve o caminho da instalação e a executa, e
 - **Sandbox ausente:** instale Go e execute `cd sandbox && go build -o sandbox ./cmd/sandbox` em Linux amd64.
 - **Sandbox recusa inicialização:** configure o token bearer e verifique root, cgroup v2, namespaces e seccomp conforme [SANDBOX.md](SANDBOX.md).
 - **Não use `sudo` no instalador Python:** só `scripts/install-systemd.sh` requer elevação.
+- **Remover tudo:** veja a seção [Desinstalar](#desinstalar).
