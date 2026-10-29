@@ -155,10 +155,10 @@ install_service() {
 
     echo "==> Installing $service_name"
     cp "$src" "$dst"
-    sed -i \\
-        -e "s|/home/vps28/Documentos/Dev/Zeus|$PROJECT_DIR|g" \\
-        -e "s|/home/vps28/.zeus|$STATE_HOME|g" \\
-        -e "s|^User=vps28$|User=$PROJECT_USER|" \\
+    sed -i \
+        -e "s|/home/vps28/Documentos/Dev/Zeus|$PROJECT_DIR|g" \
+        -e "s|/home/vps28/.zeus|$STATE_HOME|g" \
+        -e "s|^User=vps28$|User=$PROJECT_USER|" \
         "$dst"
     systemctl daemon-reload
     if [[ "$enable_service" == "yes" ]]; then
