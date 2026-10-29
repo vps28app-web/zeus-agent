@@ -30,6 +30,9 @@ def _config_env_path() -> Path:
 def _load_env() -> None:
     """Load .env from ZEUS_HOME or the project root if present."""
     paths = [_config_env_path(), Path.cwd() / ".env"]
+    install_dir = os.getenv("ZEUS_INSTALL_DIR")
+    if install_dir:
+        paths.append(Path(install_dir) / ".env")
     for env_file in paths:
         if env_file.exists():
             load_dotenv(env_file)

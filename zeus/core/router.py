@@ -377,7 +377,11 @@ def google_api_chat(
     from dotenv import load_dotenv
 
     zeus_home = Path(os.getenv("ZEUS_HOME", os.path.expanduser("~/.zeus")))
-    for path in [zeus_home / ".env", Path.cwd() / ".env"]:
+    env_paths = [zeus_home / ".env", Path.cwd() / ".env"]
+    install_dir = os.getenv("ZEUS_INSTALL_DIR")
+    if install_dir:
+        env_paths.append(Path(install_dir) / ".env")
+    for path in env_paths:
         if path.exists():
             load_dotenv(path, override=False)
 
@@ -404,7 +408,11 @@ def google_auth_chat(
     from dotenv import load_dotenv
 
     zeus_home = Path(os.getenv("ZEUS_HOME", os.path.expanduser("~/.zeus")))
-    for path in [zeus_home / ".env", Path.cwd() / ".env"]:
+    env_paths = [zeus_home / ".env", Path.cwd() / ".env"]
+    install_dir = os.getenv("ZEUS_INSTALL_DIR")
+    if install_dir:
+        env_paths.append(Path(install_dir) / ".env")
+    for path in env_paths:
         if path.exists():
             load_dotenv(path, override=False)
 

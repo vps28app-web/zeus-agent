@@ -7,15 +7,21 @@
     "node": ">=18"
   },
   "bin": {
-    "zeus-install": "scripts/npm-install.cjs"
+    "zeus-install": "scripts/npm-install.cjs",
+    "zeus": "scripts/zeus-launcher.cjs",
+    "Zeus": "scripts/zeus-launcher.cjs",
+    "zeus-gateway": "scripts/zeus-launcher.cjs"
   },
   "scripts": {
     "install:zeus": "node scripts/npm-install.cjs",
-    "test:installer": "node --test scripts/npm-install.test.cjs"
+    "test:installer": "node --test scripts/npm-install.test.cjs",
+    "test:launcher": "node --test scripts/zeus-launcher.test.cjs"
   },
   "files": [
     "scripts/npm-install.cjs",
     "scripts/npm-install-lib.cjs",
+    "scripts/zeus-launcher.cjs",
+    "scripts/zeus-launcher-lib.cjs",
     "README.md",
     "LICENSE"
   ],

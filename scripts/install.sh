@@ -114,6 +114,15 @@ else
     echo "Skipping Go sandbox: Go is missing or ZEUS_SKIP_SANDBOX=1."
 fi
 
+# Record the installation for the npm launcher (pure JS, no shell evaluation).
+# The registry is advisory: the launcher only trusts canonical absolute paths.
+if [[ -d "$STATE_HOME" ]]; then
+    REGISTRY_TMP="$(mktemp "$STATE_HOME/.install-dir.XXXXXX")"
+    printf '%s\n' "$PROJECT_DIR" > "$REGISTRY_TMP"
+    chmod 600 "$REGISTRY_TMP"
+    python3 -c 'import os, sys; os.replace(sys.argv[1], sys.argv[2])' "$REGISTRY_TMP" "$STATE_HOME/install-dir"
+fi
+
 # Add convenience launchers without overwriting an unrelated user command.
 BIN_DIR="$HOME/.local/bin"
 mkdir -p "$BIN_DIR"
@@ -131,10 +140,9 @@ write_launcher() {
     tmp="$(mktemp "$BIN_DIR/.${name}.XXXXXX")"
     {
         printf '#!/usr/bin/env bash\n# Managed by Zeus Agent installer\n'
-        printf 'ZEUS_INSTALL_DIR=%q\n' "$PROJECT_DIR"
+        printf 'export ZEUS_INSTALL_DIR=%q\n' "$PROJECT_DIR"
         printf 'ZEUS_DEFAULT_HOME=%q\n' "$STATE_HOME"
         printf 'export ZEUS_HOME="${ZEUS_HOME:-$ZEUS_DEFAULT_HOME}"\n'
-        printf 'cd "$ZEUS_INSTALL_DIR"\n'
         printf 'exec "$ZEUS_INSTALL_DIR/.venv/bin/%s" "$@"\n' "$entrypoint"
     } > "$tmp"
     chmod 755 "$tmp"
