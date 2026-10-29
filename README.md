@@ -41,17 +41,19 @@ zeus --version   # em qualquer diretório
 
 O launcher não instala o Zeus: ele localiza a instalação existente (`ZEUS_INSTALL_DIR`, checkout acima do diretório atual, registro `~/.zeus/install-dir` ou `~/.local/share/zeus-agent`) e a executa preservando o diretório atual como workspace. O `.env` da raiz do checkout continua carregando mesmo executando fora dele. Requer Node 18+; funciona em qualquer plataforma com Node, sem as restrições de Linux amd64 do fluxo completo abaixo.
 
-Em Debian/Ubuntu amd64 com Go 1.20+ disponível nos repositórios apt, também há um fluxo npm que prepara as dependências e instala/inicia a sandbox systemd em uma execução:
+Em Debian/Ubuntu amd64 com Go 1.20+ disponível nos repositórios apt, também há um fluxo npm que prepara as dependências e instala/inicia a sandbox systemd em uma execução. Direto do GitHub, sem clonar nada:
+
+```bash
+npx --yes --package=git+https://github.com/vps28app-web/zeus-agent.git zeus-install
+```
+
+Esse comando funciona em qualquer diretório. Se você já tem um checkout e está na raiz dele, o equivalente é:
 
 ```bash
 npm run install:zeus
 ```
 
-Ou execute o lançador direto do GitHub, sem clonar manualmente:
-
-```bash
-npx --yes --package=git+https://github.com/vps28app-web/zeus-agent.git zeus-install
-```
+Atenção: `npm run` exige o `package.json` no diretório atual — fora do checkout ele falha com `ENOENT`; use o `npx` acima nesse caso.
 
 Requer Node.js 18+, npm e Git. O instalador pede confirmação antes de instalar pacotes de sistema e solicitar autorização administrativa para o serviço da sandbox.
 

@@ -48,17 +48,13 @@ Variáveis do `.env` da raiz do checkout continuam carregando mesmo executando f
 
 ## Instalação completa com npm
 
-Em Debian/Ubuntu amd64 com Go 1.20+ disponível nos repositórios apt, a alternativa npm automatiza os pré-requisitos de sistema, a instalação Python, a compilação e o serviço privilegiado da sandbox:
-
-```bash
-npm run install:zeus
-```
-
-Execute o comando na raiz do checkout; não é necessário rodar `npm install`. Para iniciar sem clonar manualmente:
+Em Debian/Ubuntu amd64 com Go 1.20+ disponível nos repositórios apt, a alternativa npm automatiza os pré-requisitos de sistema, a instalação Python, a compilação e o serviço privilegiado da sandbox. Direto do GitHub, sem clonar nada, funciona em qualquer diretório:
 
 ```bash
 npx --yes --package=git+https://github.com/vps28app-web/zeus-agent.git zeus-install
 ```
+
+Se você já tem um checkout e está na raiz dele, o equivalente é `npm run install:zeus` (não é necessário rodar `npm install` antes). Atenção: `npm run` exige o `package.json` no diretório atual — fora do checkout ele falha com `ENOENT`; use o `npx` acima nesse caso. Quem instalou o pacote globalmente (`npm install -g git+...`) também pode rodar apenas `zeus-install` de qualquer diretório.
 
 Requer Node.js 18+, npm e Git. O instalador pergunta antes de instalar `git`, Python/venv e Go via apt; depois executa o instalador normal, solicita autorização local para instalar e iniciar `zeus-sandbox.service`, verifica se o serviço ficou ativo e abre `zeus setup` para configurar o provedor. Use `-- --skip-setup` com `npm run install:zeus` para pular a configuração interativa.
 
