@@ -8,6 +8,7 @@
   },
   "bin": {
     "zeus-install": "scripts/npm-install.cjs",
+    "zeus-uninstall": "scripts/uninstall.sh",
     "zeus": "scripts/zeus-launcher.cjs",
     "Zeus": "scripts/zeus-launcher.cjs",
     "zeus-gateway": "scripts/zeus-launcher.cjs"
@@ -20,6 +21,7 @@
   "files": [
     "scripts/npm-install.cjs",
     "scripts/npm-install-lib.cjs",
+    "scripts/uninstall.sh",
     "scripts/zeus-launcher.cjs",
     "scripts/zeus-launcher-lib.cjs",
     "README.md",

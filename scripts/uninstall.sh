@@ -27,6 +27,7 @@ done
 if [[ $SHOW_HELP -eq 1 ]]; then
     echo "Desinstala o Zeus desta máquina (usuário atual)."
     echo "Uso: scripts/uninstall.sh [--state] [--clone] [--venv]"
+    echo "     (instalado via npm: zeus-uninstall [--state] [--clone] [--venv], de qualquer diretório)"
     echo ""
     echo "Remove por padrão: launchers em ~/.local/bin e o registro ~/.zeus/install-dir."
     echo "Flags opcionais (destrutivas, pedem confirmação):"
@@ -94,9 +95,22 @@ if [[ $REMOVE_CLONE -eq 1 ]]; then
 fi
 
 # 5. Project venv (opt-in): the checkout itself stays untouched.
+# When invoked from the npm global package (symlink), resolve the real
+# installation via ZEUS_INSTALL_DIR or the ~/.zeus/install-dir registry
+# instead of the directory the script happens to live in.
 if [[ $REMOVE_VENV -eq 1 ]]; then
     PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-    if [[ -d "$PROJECT_DIR/.venv" ]]; then
+    if [[ ! -f "$PROJECT_DIR/pyproject.toml" || ! -d "$PROJECT_DIR/zeus" ]]; then
+        PROJECT_DIR="${ZEUS_INSTALL_DIR:-}"
+        if [[ -z "$PROJECT_DIR" && -f "$STATE_HOME/install-dir" ]]; then
+            PROJECT_DIR="$(head -n1 "$STATE_HOME/install-dir")"
+        fi
+        if [[ -z "$PROJECT_DIR" || ! -d "$PROJECT_DIR/.venv" ]]; then
+            echo "Não consegui localizar o .venv da instalação (defina ZEUS_INSTALL_DIR ou rode dentro do checkout)."
+            PROJECT_DIR=""
+        fi
+    fi
+    if [[ -n "$PROJECT_DIR" && -d "$PROJECT_DIR/.venv" ]]; then
         read -r -p "Apagar $PROJECT_DIR/.venv? [s/N] " answer
         if [[ "$answer" =~ ^[sS](im)?$ ]]; then
             rm -rf -- "$PROJECT_DIR/.venv"

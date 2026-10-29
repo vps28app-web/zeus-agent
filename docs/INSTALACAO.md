@@ -135,11 +135,14 @@ O launcher é estável: ele só resolve o caminho da instalação e a executa, e
 
 ## Desinstalar
 
-O `scripts/uninstall.sh` remove o que o instalador criou no seu usuário: launchers em `~/.local/bin` (só os gerenciados pelo Zeus) e o registro `~/.zeus/install-dir`:
+O `scripts/uninstall.sh` remove o que o instalador criou no seu usuário: launchers em `~/.local/bin` (só os gerenciados pelo Zeus) e o registro `~/.zeus/install-dir`. Sem um checkout à mão, rode o mesmo comando global via npm, de qualquer diretório:
 
 ```bash
-./scripts/uninstall.sh
+npx --yes --package=git+https://github.com/vps28app-web/zeus-agent.git zeus-uninstall
+# ou, com o pacote instalado globalmente: zeus-uninstall
 ```
+
+Dentro de um checkout, o equivalente é `./scripts/uninstall.sh`.
 
 Flags opcionais para ir além, cada uma com confirmação interativa:
 
