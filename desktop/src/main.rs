@@ -114,6 +114,7 @@ struct ZeusApp {
 
     // Configurações e UI
     show_about: bool,
+    show_settings: bool,
     show_add_project: bool,
     new_project_path: String,
     new_project_name: String,
@@ -187,6 +188,7 @@ impl ZeusApp {
             event_receiver: rx,
             active_child: Arc::new(Mutex::new(None)),
             show_about: false,
+            show_settings: false,
             show_add_project: false,
             new_project_path: String::new(),
             new_project_name: String::new(),
@@ -228,6 +230,24 @@ impl ZeusApp {
         }
 
         (provider, model)
+    }
+
+    fn all_providers() -> &'static [(&'static str, &'static str)] {
+        &[
+            ("opencode_go", "OpenCode Go"),
+            ("google_api", "Google Gemini"),
+            ("openrouter", "OpenRouter"),
+            ("openai", "OpenAI"),
+            ("anthropic", "Anthropic Claude"),
+            ("deepseek", "DeepSeek"),
+            ("mistral", "Mistral AI"),
+            ("ollama", "Ollama (Local)"),
+            ("groq", "Groq"),
+            ("xai", "xAI (Grok)"),
+            ("together", "Together AI"),
+            ("fireworks", "Fireworks AI"),
+            ("cohere", "Cohere"),
+        ]
     }
 
     fn provider_display_name(provider: &str) -> &'static str {
@@ -446,6 +466,7 @@ impl ZeusApp {
         let cwd = self.current_dir.clone();
 
         // Parâmetros selecionados
+        let provider = self.current_provider.clone();
         let model = self.selected_model.clone();
         let reasoning = self.selected_reasoning.clone();
         let mode = self.selected_mode;
@@ -466,7 +487,8 @@ impl ZeusApp {
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped());
 
-            // Modelo e esforço de raciocínio
+            // Provedor, modelo e esforço de raciocínio
+            cmd.env("ZEUS_PROVIDER", &provider);
             cmd.env("ZEUS_MODEL", &model);
             cmd.env("ZEUS_REASONING_EFFORT", reasoning.to_lowercase());
 
@@ -781,6 +803,11 @@ impl eframe::App for ZeusApp {
             ui.horizontal(|ui| {
                 // Menu Hamburger antes do título
                 ui.menu_button("☰", |ui| {
+                    if ui.button("⚙️ Configurações").clicked() {
+                        self.show_settings = true;
+                        ui.close();
+                    }
+                    ui.separator();
                     if ui.button("ℹ️ Sobre").clicked() {
                         self.show_about = true;
                         ui.close();
@@ -1244,6 +1271,142 @@ impl eframe::App for ZeusApp {
                 });
             });
         });
+
+        // Janela Configurações
+        if self.show_settings {
+            egui::Window::new("⚙️ Configurações")
+                .collapsible(false)
+                .resizable(true)
+                .default_width(460.0)
+                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                .show(&ctx, |ui| {
+                    ui.heading("Preferências do Zeus");
+                    ui.add_space(8.0);
+
+                    // Seção 1: Provedor e Modelo
+                    ui.group(|ui| {
+                        ui.label(egui::RichText::new("🌐 Provedor de IA e Modelo").strong());
+                        ui.add_space(4.0);
+
+                        egui::Grid::new("settings_grid_provider")
+                            .num_columns(2)
+                            .spacing([12.0, 8.0])
+                            .show(ui, |ui| {
+                                ui.label("Provedor:");
+                                egui::ComboBox::from_id_salt("settings_provider_combo")
+                                    .selected_text(Self::provider_display_name(&self.current_provider))
+                                    .width(260.0)
+                                    .show_ui(ui, |ui| {
+                                        for (p_id, p_name) in Self::all_providers() {
+                                            if ui.selectable_label(self.current_provider == *p_id, *p_name).clicked() {
+                                                self.current_provider = p_id.to_string();
+                                                let models = Self::get_models_for_provider(p_id);
+                                                if let Some((first_m, _)) = models.first() {
+                                                    self.selected_model = first_m.to_string();
+                                                }
+                                            }
+                                        }
+                                    });
+                                ui.end_row();
+
+                                ui.label("Modelo ativo:");
+                                egui::ComboBox::from_id_salt("settings_model_combo")
+                                    .selected_text(&self.selected_model)
+                                    .width(260.0)
+                                    .show_ui(ui, |ui| {
+                                        let available_models = Self::get_models_for_provider(&self.current_provider);
+                                        for (m_id, m_label) in available_models {
+                                            let text = format!("{} ({})", m_id, m_label);
+                                            if ui.selectable_label(self.selected_model == m_id, text).clicked() {
+                                                self.selected_model = m_id.to_string();
+                                            }
+                                        }
+                                    });
+                                ui.end_row();
+
+                                ui.label("Modelo customizado:");
+                                ui.text_edit_singleline(&mut self.selected_model);
+                                ui.end_row();
+                            });
+                    });
+
+                    ui.add_space(6.0);
+
+                    // Seção 2: Modo e Raciocínio
+                    ui.group(|ui| {
+                        ui.label(egui::RichText::new("🛡️ Execução e Raciocínio").strong());
+                        ui.add_space(4.0);
+
+                        egui::Grid::new("settings_grid_execution")
+                            .num_columns(2)
+                            .spacing([12.0, 8.0])
+                            .show(ui, |ui| {
+                                ui.label("Modo Padrão:");
+                                egui::ComboBox::from_id_salt("settings_mode_combo")
+                                    .selected_text(self.selected_mode.label())
+                                    .width(260.0)
+                                    .show_ui(ui, |ui| {
+                                        let all_modes = [
+                                            ZeusMode::Sandbox,
+                                            ZeusMode::Terminal,
+                                            ZeusMode::Auto,
+                                            ZeusMode::DryRun,
+                                            ZeusMode::ReadOnly,
+                                        ];
+                                        for m in all_modes {
+                                            if ui.selectable_label(self.selected_mode == m, m.label()).clicked() {
+                                                self.selected_mode = m;
+                                            }
+                                        }
+                                    });
+                                ui.end_row();
+
+                                ui.label("Raciocínio:");
+                                egui::ComboBox::from_id_salt("settings_reasoning_combo")
+                                    .selected_text(&self.selected_reasoning)
+                                    .width(260.0)
+                                    .show_ui(ui, |ui| {
+                                        for opt in ["Mínimo", "Medium", "Alto"] {
+                                            if ui.selectable_label(self.selected_reasoning == opt, opt).clicked() {
+                                                self.selected_reasoning = opt.to_string();
+                                            }
+                                        }
+                                    });
+                                ui.end_row();
+                            });
+                    });
+
+                    ui.add_space(6.0);
+
+                    // Seção 3: Comportamento da Sessão
+                    ui.group(|ui| {
+                        ui.label(egui::RichText::new("⚡ Comportamento").strong());
+                        ui.add_space(4.0);
+                        ui.checkbox(&mut self.session_context, "Manter histórico de contexto entre comandos na sessão");
+                        ui.checkbox(&mut self.auto_scroll, "Rolar automaticamente para novas mensagens");
+                    });
+
+                    ui.add_space(6.0);
+
+                    // Seção 4: Ambiente
+                    ui.group(|ui| {
+                        ui.label(egui::RichText::new("📂 Ambiente").strong());
+                        ui.add_space(4.0);
+                        ui.label(
+                            egui::RichText::new(format!("Pasta atual: {}", self.current_dir.display()))
+                                .size(11.0)
+                                .color(egui::Color32::from_rgb(180, 190, 205)),
+                        );
+                    });
+
+                    ui.add_space(10.0);
+                    ui.horizontal(|ui| {
+                        if ui.button("OK / Concluir").clicked() {
+                            self.show_settings = false;
+                        }
+                    });
+                });
+        }
 
         // Janela Sobre
         if self.show_about {
