@@ -84,6 +84,32 @@ struct ProjectItem {
     path: PathBuf,
 }
 
+#[derive(Clone, Copy)]
+struct CommandInfo {
+    cmd: &'static str,
+    desc: &'static str,
+    category: &'static str,
+}
+
+impl CommandInfo {
+    const fn new(cmd: &'static str, desc: &'static str, category: &'static str) -> Self {
+        Self { cmd, desc, category }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct ToolInfo {
+    name: &'static str,
+    desc: &'static str,
+    category: &'static str,
+}
+
+impl ToolInfo {
+    const fn new(name: &'static str, desc: &'static str, category: &'static str) -> Self {
+        Self { name, desc, category }
+    }
+}
+
 struct ZeusApp {
     // Conversas (histórico mantido em até 5 conversas)
     conversations: Vec<Conversation>,
@@ -115,6 +141,11 @@ struct ZeusApp {
     // Configurações e UI
     show_about: bool,
     show_settings: bool,
+    show_commands: bool,
+    show_tools: bool,
+    show_mcp: bool,
+    commands_filter: String,
+    tools_filter: String,
     show_add_project: bool,
     new_project_path: String,
     new_project_name: String,
@@ -189,6 +220,11 @@ impl ZeusApp {
             active_child: Arc::new(Mutex::new(None)),
             show_about: false,
             show_settings: false,
+            show_commands: false,
+            show_tools: false,
+            show_mcp: false,
+            commands_filter: String::new(),
+            tools_filter: String::new(),
             show_add_project: false,
             new_project_path: String::new(),
             new_project_name: String::new(),
@@ -248,6 +284,113 @@ impl ZeusApp {
             ("fireworks", "Fireworks AI"),
             ("cohere", "Cohere"),
         ]
+    }
+
+    fn get_all_commands() -> &'static [CommandInfo] {
+        const COMMANDS: &[CommandInfo] = &[
+            // Sessão & Sistema
+            CommandInfo::new("/new", "Cria uma nova sessão de conversa com novo ID.", "Sessão & Sistema"),
+            CommandInfo::new("/reset", "Reseta a sessão atual mantendo o ID e zera métricas.", "Sessão & Sistema"),
+            CommandInfo::new("/clear", "Limpa as mensagens visíveis da tela.", "Sessão & Sistema"),
+            CommandInfo::new("/summary", "Mostra resumo da sessão e consumo de tokens/custo.", "Sessão & Sistema"),
+            CommandInfo::new("/help", "Exibe menu de ajuda com a lista de comandos do Zeus.", "Sessão & Sistema"),
+            CommandInfo::new("/exit", "Encerra o Zeus.", "Sessão & Sistema"),
+
+            // Configuração & Modelos
+            CommandInfo::new("/config", "Gerencia configurações do Zeus (get/set/list).", "Configuração & IA"),
+            CommandInfo::new("/models", "Lista ou altera o provedor e modelo de IA ativo.", "Configuração & IA"),
+            CommandInfo::new("/auth", "Autentica Google Gemini via navegador (google_auth).", "Configuração & IA"),
+            CommandInfo::new("/skills", "Seleciona skill set ou persona para filtrar ferramentas.", "Configuração & IA"),
+
+            // Segurança & Modos
+            CommandInfo::new("/mode <sandbox|terminal|auto|dryrun|readonly>", "Alterna modo de execução de código e segurança.", "Segurança & Modos"),
+            CommandInfo::new("/mode file <read_only|project_only|unrestricted>", "Define a fronteira de permissão de escrita/leitura em disco.", "Segurança & Modos"),
+            CommandInfo::new("/mode status", "Exibe modo atual e status de segurança do agente.", "Segurança & Modos"),
+
+            // Planejamento & Multi-Agente
+            CommandInfo::new("/plan <tarefa>", "Cria e executa um plano estruturado passo a passo.", "Planejamento & Equipe"),
+            CommandInfo::new("/plan bmad <ideia>", "Análise BMAD de modelo de negócio para uma ideia.", "Planejamento & Equipe"),
+            CommandInfo::new("/team <tarefa>", "Executa uma tarefa delegando para equipe multi-agente.", "Planejamento & Equipe"),
+
+            // Memória & Aprendizado
+            CommandInfo::new("/learn", "Gerencia aprendizados persistentes (list/search/add/stats/forget).", "Memória & Aprendizado"),
+            CommandInfo::new("/brain", "Dashboard de inteligência e aprendizado contínuo.", "Memória & Aprendizado"),
+            CommandInfo::new("/mcp", "Gerencia servidores Model Context Protocol (list/add/remove/reload).", "Protocolo MCP"),
+        ];
+        COMMANDS
+    }
+
+    fn get_all_tools() -> &'static [ToolInfo] {
+        const TOOLS: &[ToolInfo] = &[
+            // Arquivos e Diretórios
+            ToolInfo::new("read_file", "Lê o conteúdo e linhas de um arquivo de texto.", "Arquivos & Diretórios"),
+            ToolInfo::new("write_file", "Cria ou sobrescreve arquivo em disco (cria pastas pais).", "Arquivos & Diretórios"),
+            ToolInfo::new("replace_file_content", "Substitui trecho específico de arquivo com diff seguro.", "Arquivos & Diretórios"),
+            ToolInfo::new("move_file", "Move ou renomeia arquivo ou diretório.", "Arquivos & Diretórios"),
+            ToolInfo::new("copy_file", "Copia arquivo ou árvore inteira de diretórios.", "Arquivos & Diretórios"),
+            ToolInfo::new("delete_file", "Remove um arquivo de forma definitiva.", "Arquivos & Diretórios"),
+            ToolInfo::new("list_directory", "Lista arquivos e subpastas de um caminho.", "Arquivos & Diretórios"),
+            ToolInfo::new("grep_search", "Busca regex em alta velocidade pelos arquivos do projeto.", "Arquivos & Diretórios"),
+            ToolInfo::new("search_files", "Busca padrões e regex no conteúdo de arquivos.", "Arquivos & Diretórios"),
+
+            // Terminal e Execução
+            ToolInfo::new("run_terminal", "Executa comando shell diretamente no host local.", "Terminal & Execução"),
+            ToolInfo::new("run_sandboxed", "Executa comando shell dentro de sandbox isolada segura.", "Terminal & Execução"),
+            ToolInfo::new("run_background_command", "Inicia processo assíncrono em segundo plano (ex: servidores).", "Terminal & Execução"),
+            ToolInfo::new("command_status", "Obtém status e saída stdout/stderr de comando em background.", "Terminal & Execução"),
+            ToolInfo::new("terminate_command", "Encerra um processo em segundo plano pelo ID.", "Terminal & Execução"),
+            ToolInfo::new("execute_python", "Executa código Python isolado dentro da sandbox.", "Terminal & Execução"),
+            ToolInfo::new("execute_shell_script", "Executa script shell isolado na sandbox.", "Terminal & Execução"),
+
+            // Git e Versionamento
+            ToolInfo::new("git_status", "Exibe o status do repositório Git e arquivos modificados.", "Git & Versionamento"),
+            ToolInfo::new("git_log", "Exibe histórico de commits do repositório.", "Git & Versionamento"),
+            ToolInfo::new("git_diff", "Exibe diff das alterações em relação a HEAD.", "Git & Versionamento"),
+            ToolInfo::new("git_branch", "Lista e gerencia branches locais e remotas.", "Git & Versionamento"),
+            ToolInfo::new("git_checkout", "Alterna branch ou restaura arquivos no Git.", "Git & Versionamento"),
+            ToolInfo::new("git_commit", "Cria commit das alterações preparadas com mensagem.", "Git & Versionamento"),
+            ToolInfo::new("git_push", "Envia commits locais para o repositório remoto.", "Git & Versionamento"),
+            ToolInfo::new("git_pull", "Baixa e integra alterações do repositório remoto.", "Git & Versionamento"),
+            ToolInfo::new("git_clone", "Clona um repositório Git remoto para o disco.", "Git & Versionamento"),
+
+            // Web e Navegação
+            ToolInfo::new("web_search", "Pesquisa informações em tempo real na web (DuckDuckGo/Tavily/Serper).", "Web & Navegação"),
+            ToolInfo::new("web_extract", "Extrai e converte conteúdo de URL em Markdown limpo para LLM.", "Web & Navegação"),
+            ToolInfo::new("web_scrape_links", "Extrai todos os links e textos de uma página web.", "Web & Navegação"),
+            ToolInfo::new("browser_navigate", "Navega para URL em Chrome headless (Playwright/Puppeteer).", "Web & Navegação"),
+            ToolInfo::new("browser_extract", "Extrai elementos HTML ou texto de página no navegador.", "Web & Navegação"),
+            ToolInfo::new("browser_click", "Clica em botões e elementos de página web interativa.", "Web & Navegação"),
+            ToolInfo::new("browser_evaluate", "Executa código JavaScript na página aberta no navegador.", "Web & Navegação"),
+
+            // Memória e Perfil
+            ToolInfo::new("remember", "Salva notas e fatos na memória persistente SQLite.", "Memória & Perfil"),
+            ToolInfo::new("recall", "Recupera anotações gravadas na memória por chave.", "Memória & Perfil"),
+            ToolInfo::new("search_memory", "Busca em notas salvas na memória por palavra-chave.", "Memória & Perfil"),
+            ToolInfo::new("list_memories", "Lista todas as chaves e contagens de notas persistidas.", "Memória & Perfil"),
+            ToolInfo::new("forget_memory", "Remove notas associadas a uma chave de memória.", "Memória & Perfil"),
+            ToolInfo::new("remember_user", "Salva preferências, fatos e hábitos do usuário.", "Memória & Perfil"),
+            ToolInfo::new("recall_user", "Recupera perfil personalizado do usuário.", "Memória & Perfil"),
+
+            // Aprendizado Contínuo
+            ToolInfo::new("reflect_on_resolution", "Salva padrão de problema/solução aprendido para o futuro.", "Aprendizado Contínuo"),
+            ToolInfo::new("search_past_learnings", "Busca aprendizados passados relevantes para a tarefa.", "Aprendizado Contínuo"),
+            ToolInfo::new("rate_learning", "Avalia utilidade de aprendizado (ajusta pontuação de relevância).", "Aprendizado Contínuo"),
+            ToolInfo::new("list_recent_learnings", "Lista os aprendizados mais recentes gravados.", "Aprendizado Contínuo"),
+
+            // Configuração & Sistema
+            ToolInfo::new("get_zeus_config", "Retorna configuração atual, chaves de API e status do Zeus.", "Configuração & Sistema"),
+            ToolInfo::new("update_zeus_config", "Atualiza chave de API ou variável de configuração no .env.", "Configuração & Sistema"),
+            ToolInfo::new("list_available_models", "Lista provedores e modelos LLM disponíveis.", "Configuração & Sistema"),
+            ToolInfo::new("query_database", "Executa consultas SELECT somente leitura no banco SQLite zeus.db.", "Configuração & Sistema"),
+            ToolInfo::new("manage_packages", "Gerencia pacotes de sistema e Python (apt/flatpak/pip).", "Configuração & Sistema"),
+            ToolInfo::new("change_working_directory", "Altera diretório ativo e fronteira de arquivos da sessão.", "Configuração & Sistema"),
+
+            // Agendador (Scheduler)
+            ToolInfo::new("schedule_task", "Agenda tarefa recorrente via expressão cron no SQLite.", "Agendador (Scheduler)"),
+            ToolInfo::new("list_scheduled", "Lista tarefas cron agendadas e próximas execuções.", "Agendador (Scheduler)"),
+            ToolInfo::new("cancel_task", "Cancela e remove uma tarefa agendada pelo ID.", "Agendador (Scheduler)"),
+        ];
+        TOOLS
     }
 
     fn provider_display_name(provider: &str) -> &'static str {
@@ -805,6 +948,19 @@ impl eframe::App for ZeusApp {
                 ui.menu_button("☰", |ui| {
                     if ui.button("⚙️ Configurações").clicked() {
                         self.show_settings = true;
+                        ui.close();
+                    }
+                    ui.separator();
+                    if ui.button("📜 Comandos").clicked() {
+                        self.show_commands = true;
+                        ui.close();
+                    }
+                    if ui.button("🔧 Ferramentas").clicked() {
+                        self.show_tools = true;
+                        ui.close();
+                    }
+                    if ui.button("🔌 MCP").clicked() {
+                        self.show_mcp = true;
                         ui.close();
                     }
                     ui.separator();
@@ -1406,6 +1562,269 @@ impl eframe::App for ZeusApp {
                         }
                     });
                 });
+        }
+
+        // Janela Comandos
+        if self.show_commands {
+            let mut insert_cmd = None;
+            egui::Window::new("📜 Comandos do Zeus")
+                .collapsible(false)
+                .resizable(true)
+                .default_size([580.0, 480.0])
+                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                .show(&ctx, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new("🔍 Buscar:").strong());
+                        ui.text_edit_singleline(&mut self.commands_filter);
+                        if !self.commands_filter.is_empty() && ui.button("✖").clicked() {
+                            self.commands_filter.clear();
+                        }
+                    });
+
+                    ui.add_space(6.0);
+                    ui.separator();
+
+                    let filter = self.commands_filter.trim().to_lowercase();
+                    let commands = Self::get_all_commands();
+
+                    egui::ScrollArea::vertical()
+                        .id_salt("commands_scroll_area")
+                        .max_height(380.0)
+                        .show(ui, |ui| {
+                            let mut current_cat = "";
+                            for item in commands {
+                                if !filter.is_empty()
+                                    && !item.cmd.to_lowercase().contains(&filter)
+                                    && !item.desc.to_lowercase().contains(&filter)
+                                    && !item.category.to_lowercase().contains(&filter)
+                                {
+                                    continue;
+                                }
+
+                                if item.category != current_cat {
+                                    current_cat = item.category;
+                                    ui.add_space(8.0);
+                                    ui.label(
+                                        egui::RichText::new(current_cat)
+                                            .strong()
+                                            .color(egui::Color32::from_rgb(100, 200, 255)),
+                                    );
+                                    ui.separator();
+                                }
+
+                                ui.horizontal(|ui| {
+                                    ui.label(
+                                        egui::RichText::new(item.cmd)
+                                            .strong()
+                                            .color(egui::Color32::from_rgb(255, 215, 0)),
+                                    );
+                                    ui.add_space(6.0);
+                                    ui.label(item.desc);
+
+                                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                        if ui.small_button("Usar").on_hover_text("Inserir comando no campo de texto").clicked() {
+                                            insert_cmd = Some(item.cmd.split_whitespace().next().unwrap_or(item.cmd).to_string());
+                                        }
+                                    });
+                                });
+                                ui.add_space(2.0);
+                            }
+                        });
+
+                    ui.add_space(10.0);
+                    ui.separator();
+                    if ui.button("Fechar").clicked() {
+                        self.show_commands = false;
+                    }
+                });
+
+            if let Some(c) = insert_cmd {
+                self.input_text = format!("{} ", c);
+                self.show_commands = false;
+            }
+        }
+
+        // Janela Ferramentas
+        if self.show_tools {
+            egui::Window::new("🔧 Ferramentas do Zeus (Tools)")
+                .collapsible(false)
+                .resizable(true)
+                .default_size([640.0, 520.0])
+                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                .show(&ctx, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new("🔍 Filtrar Ferramentas:").strong());
+                        ui.text_edit_singleline(&mut self.tools_filter);
+                        if !self.tools_filter.is_empty() && ui.button("✖").clicked() {
+                            self.tools_filter.clear();
+                        }
+                    });
+
+                    ui.add_space(4.0);
+                    ui.label(
+                        egui::RichText::new("Ferramentas nativas do harness disponíveis para o loop ReAct do agente:")
+                            .size(11.5)
+                            .color(egui::Color32::from_rgb(180, 190, 205)),
+                    );
+                    ui.separator();
+
+                    let filter = self.tools_filter.trim().to_lowercase();
+                    let tools = Self::get_all_tools();
+
+                    egui::ScrollArea::vertical()
+                        .id_salt("tools_scroll_area")
+                        .max_height(400.0)
+                        .show(ui, |ui| {
+                            let mut current_cat = "";
+                            for item in tools {
+                                if !filter.is_empty()
+                                    && !item.name.to_lowercase().contains(&filter)
+                                    && !item.desc.to_lowercase().contains(&filter)
+                                    && !item.category.to_lowercase().contains(&filter)
+                                {
+                                    continue;
+                                }
+
+                                if item.category != current_cat {
+                                    current_cat = item.category;
+                                    ui.add_space(8.0);
+                                    ui.label(
+                                        egui::RichText::new(current_cat)
+                                            .strong()
+                                            .color(egui::Color32::from_rgb(130, 210, 255)),
+                                    );
+                                    ui.separator();
+                                }
+
+                                ui.horizontal(|ui| {
+                                    ui.label(
+                                        egui::RichText::new(item.name)
+                                            .strong()
+                                            .color(egui::Color32::from_rgb(140, 240, 160)),
+                                    );
+                                    ui.add_space(4.0);
+                                    ui.label(
+                                        egui::RichText::new(item.desc)
+                                            .size(12.0)
+                                            .color(egui::Color32::from_rgb(220, 220, 225)),
+                                    );
+                                });
+                                ui.add_space(2.0);
+                            }
+                        });
+
+                    ui.add_space(10.0);
+                    ui.separator();
+                    if ui.button("Fechar").clicked() {
+                        self.show_tools = false;
+                    }
+                });
+        }
+
+        // Janela MCP (Model Context Protocol)
+        if self.show_mcp {
+            let mut insert_mcp = None;
+            egui::Window::new("🔌 Model Context Protocol (MCP)")
+                .collapsible(false)
+                .resizable(true)
+                .default_size([620.0, 520.0])
+                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                .show(&ctx, |ui| {
+                    ui.heading("Extensão MCP no Zeus");
+                    ui.label(
+                        "O MCP conecta o Zeus a servidores externos de ferramentas e recursos via stdio ou SSE.",
+                    );
+                    ui.add_space(8.0);
+
+                    ui.group(|ui| {
+                        ui.label(egui::RichText::new("⚡ Comandos Rápidos do MCP").strong());
+                        ui.add_space(4.0);
+
+                        let mcp_cmds = [
+                            ("/mcp list", "Lista todos os servidores MCP configurados e status de conexão"),
+                            ("/mcp reload", "Reconecta e atualiza todos os servidores MCP ativos"),
+                            ("/mcp add gemini", "Adiciona o servidor MCP oficial do Google Gemini"),
+                            ("/mcp add memory npx -y @modelcontextprotocol/server-memory", "Adiciona servidor MCP de memória em grafo"),
+                            ("/mcp add files npx -y @modelcontextprotocol/server-filesystem .", "Adiciona servidor MCP de arquivos locais"),
+                        ];
+
+                        for (cmd, desc) in mcp_cmds {
+                            ui.horizontal(|ui| {
+                                ui.label(
+                                    egui::RichText::new(cmd)
+                                        .strong()
+                                        .color(egui::Color32::from_rgb(255, 215, 0)),
+                                );
+                                ui.add_space(4.0);
+                                ui.label(
+                                    egui::RichText::new(desc)
+                                        .size(11.5)
+                                        .color(egui::Color32::from_rgb(200, 205, 215)),
+                                );
+                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                    if ui.small_button("Usar").on_hover_text("Inserir comando no prompt").clicked() {
+                                        insert_mcp = Some(cmd.to_string());
+                                    }
+                                });
+                            });
+                            ui.add_space(2.0);
+                        }
+                    });
+
+                    ui.add_space(8.0);
+
+                    ui.group(|ui| {
+                        ui.label(egui::RichText::new("📦 Presets Recomendados da Comunidade").strong());
+                        ui.add_space(4.0);
+
+                        let presets = [
+                            ("server-filesystem", "Acesso avançado e controle seguro a diretórios específicos"),
+                            ("server-github", "Automação de repositórios GitHub, issues e pull requests"),
+                            ("server-postgres", "Inspeção e execução de consultas em PostgreSQL"),
+                            ("server-sqlite", "Manipulação e queries estruturadas em bancos SQLite"),
+                            ("server-brave-search", "Pesquisa web via Brave Search API"),
+                        ];
+
+                        for (pkg, desc) in presets {
+                            ui.horizontal(|ui| {
+                                ui.label(
+                                    egui::RichText::new(format!("• {}", pkg))
+                                        .strong()
+                                        .color(egui::Color32::from_rgb(130, 210, 255)),
+                                );
+                                ui.add_space(4.0);
+                                ui.label(
+                                    egui::RichText::new(desc)
+                                        .size(11.5)
+                                        .color(egui::Color32::from_rgb(180, 190, 200)),
+                                );
+                            });
+                        }
+                    });
+
+                    ui.add_space(8.0);
+
+                    ui.group(|ui| {
+                        ui.label(egui::RichText::new("📁 Arquivo de Configuração").strong());
+                        ui.add_space(2.0);
+                        ui.label(
+                            egui::RichText::new("Os servidores são gravados em ~/.zeus/mcp_servers.json ou ./mcp_servers.json")
+                                .size(11.5)
+                                .color(egui::Color32::from_rgb(160, 170, 180)),
+                        );
+                    });
+
+                    ui.add_space(10.0);
+                    ui.separator();
+                    if ui.button("Fechar").clicked() {
+                        self.show_mcp = false;
+                    }
+                });
+
+            if let Some(cmd) = insert_mcp {
+                self.input_text = cmd;
+                self.show_mcp = false;
+            }
         }
 
         // Janela Sobre
