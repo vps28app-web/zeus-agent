@@ -1,5 +1,7 @@
 # Zeus — documentação do projeto
 
+Autor: Valdeir Pereira da Silva
+
 O Zeus é um harness de agente em Python: conecta um modelo de linguagem a um loop ReAct, ferramentas, memória e integrações. Para execução de código isolada, pode usar um serviço sandbox escrito em Go.
 
 Esta página apresenta o projeto e seus principais fluxos. Os guias especializados estão em [Uso](USAGE.md), [Ferramentas](TOOLS.md), [Configuração](CONFIG.md), [Arquitetura](ARCHITECTURE.md), [Gateways](GATEWAY.md), [MCP](MCP.md) e [Sandbox](SANDBOX.md).

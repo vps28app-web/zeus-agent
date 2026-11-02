@@ -507,12 +507,20 @@ def run_agent(
                             })
 
                     # Check for repeated identical tool calls
-                    if len(tool_call_history) >= 3 and tool_call_history[-3:] == [call_sig] * 3:
+                    if len(tool_call_history) >= 4 and tool_call_history[-4:] == [call_sig] * 4:
+                        final_response = (
+                            f"Loop interrompido: A ferramenta '{fn_name}' foi executada repetidamente com os mesmos argumentos. "
+                            "Por favor, ajuste sua instrução se necessário."
+                        )
+                        break
+                    elif len(tool_call_history) >= 3 and tool_call_history[-3:] == [call_sig] * 3:
                         messages.append({
                             "role": "system",
                             "content": f"Loop Warning: You called '{fn_name}' 3 times in a row with identical arguments. Change your approach or provide final response.",
                         })
 
+                if final_response:
+                    break
                 continue
 
             # Structured JSON path.
@@ -580,11 +588,20 @@ def run_agent(
                         })
 
                 # Check for repeated identical tool calls
-                if len(tool_call_history) >= 3 and tool_call_history[-3:] == [call_sig] * 3:
+                if len(tool_call_history) >= 4 and tool_call_history[-4:] == [call_sig] * 4:
+                    final_response = (
+                        f"Loop interrompido: A ferramenta '{fn_name}' foi executada repetidamente com os mesmos argumentos. "
+                        "Por favor, ajuste sua instrução se necessário."
+                    )
+                    break
+                elif len(tool_call_history) >= 3 and tool_call_history[-3:] == [call_sig] * 3:
                     messages.append({
                         "role": "system",
                         "content": f"Loop Warning: You called '{fn_name}' 3 times in a row with identical arguments. Change your approach or provide final response.",
                     })
+
+            if final_response:
+                break
 
         if final_response:
             final_response = clean_agent_response(final_response)

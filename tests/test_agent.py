@@ -248,3 +248,32 @@ def test_execute_tool_call_rejects_invalid_arguments():
     assert "missing required keys" in result["error"]
 
 
+def test_agent_breaks_on_4_identical_tool_calls():
+    mock_repeat_call = {
+        "choices": [
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "call_rep",
+                            "type": "function",
+                            "function": {
+                                "name": "web_search",
+                                "arguments": json.dumps({"query": "infinite loop"}),
+                            },
+                        }
+                    ],
+                }
+            }
+        ]
+    }
+
+    with patch("zeus.core.agent.chat", return_value=mock_repeat_call):
+        with patch("zeus.core.agent.execute_tool_call", return_value={"status": "ok"}):
+            result = run_agent("test query", max_turns=10)
+    assert "Loop interrompido" in result
+    assert "web_search" in result
+
+

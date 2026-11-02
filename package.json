@@ -2,6 +2,7 @@
   "name": "zeus-agent-installer",
   "version": "0.1.0",
   "description": "Interactive npm bootstrap installer for the Zeus Agent and Linux sandbox",
+  "author": "Valdeir Pereira da Silva",
   "license": "MIT",
   "engines": {
     "node": ">=18"

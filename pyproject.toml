@@ -10,7 +10,7 @@ readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.8"
 authors = [
-    {name = "vps28"}
+    {name = "Valdeir Pereira da Silva"}
 ]
 keywords = ["agent", "ai", "llm", "tool-use", "harness"]
 classifiers = [

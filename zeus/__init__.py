@@ -1,4 +1,7 @@
-"""Zeus agent harness."""
+"""Zeus agent harness.
+
+Autor: Valdeir Pereira da Silva
+"""
 
 __version__ = "0.1.0"
 

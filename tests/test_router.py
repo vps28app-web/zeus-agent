@@ -389,3 +389,41 @@ def test_stream_response_ollama_ndjson():
     mock_response.iter_lines.return_value = lines
     result = router._stream_response(mock_response, "ollama")
     assert result["choices"][0]["message"]["content"] == "hello world"
+
+
+@patch("requests.post")
+def test_opencode_go_chat_retries_on_429_rate_limit(mock_post):
+    env = {
+        "OPENCODE_GO_API_KEY": "fake-opencode-key",
+        "OPENCODE_GO_BASE_URL": "https://opencode.ai/zen/go/v1",
+    }
+    rate_limit_resp = MagicMock(status_code=429, text='{"error":"Too many requests"}', headers={})
+    ok_resp = MagicMock(status_code=200, json=lambda: {"choices": [{"message": {"content": "recovered from 429"}}]}, headers={})
+
+    mock_post.side_effect = [rate_limit_resp, ok_resp]
+
+    with patch.dict(os.environ, env, clear=False):
+        with patch("zeus.core.router.time.sleep") as mock_sleep:
+            response = router.opencode_go_chat([{"role": "user", "content": "hi"}], [], "deepseek-v4-flash")
+    assert response["choices"][0]["message"]["content"] == "recovered from 429"
+    assert mock_post.call_count == 2
+    mock_sleep.assert_called_once()
+
+
+@patch("requests.post")
+def test_opencode_go_chat_respects_retry_after_header(mock_post):
+    env = {
+        "OPENCODE_GO_API_KEY": "fake-opencode-key",
+        "OPENCODE_GO_BASE_URL": "https://opencode.ai/zen/go/v1",
+    }
+    rate_limit_resp = MagicMock(status_code=429, text='{"error":"Too many requests"}', headers={"Retry-After": "3.5"})
+    ok_resp = MagicMock(status_code=200, json=lambda: {"choices": [{"message": {"content": "ok after retry-after"}}]}, headers={})
+
+    mock_post.side_effect = [rate_limit_resp, ok_resp]
+
+    with patch.dict(os.environ, env, clear=False):
+        with patch("zeus.core.router.time.sleep") as mock_sleep:
+            response = router.opencode_go_chat([{"role": "user", "content": "hi"}], [], "deepseek-v4-flash")
+    assert response["choices"][0]["message"]["content"] == "ok after retry-after"
+    assert mock_post.call_count == 2
+    mock_sleep.assert_called_with(3.5)

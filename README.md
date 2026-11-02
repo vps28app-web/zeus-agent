@@ -183,5 +183,5 @@ Para instalação persistente, use o instalador systemd documentado em [`docs/IN
 
 ## Autor
 
-- **vps28**
+- **Valdeir Pereira da Silva**
 

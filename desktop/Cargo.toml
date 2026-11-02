@@ -1,0 +1,18 @@
+[package]
+name = "zeus-desktop"
+version = "0.1.0"
+edition = "2021"
+authors = ["Valdeir Pereira da Silva"]
+description = "Zeus Desktop - Interface gráfica nativa em Rust para o Zeus Agent"
+
+[dependencies]
+eframe = "0.37"
+egui = "0.37"
+chrono = "0.4"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

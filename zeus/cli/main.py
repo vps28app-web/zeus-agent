@@ -17,6 +17,76 @@ from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.formatted_text import ANSI
 from prompt_toolkit.history import FileHistory
 
+from zeus.cli.commands import (
+    _current_skill_label,
+    _dispatch_load_env,
+    _dispatch_set_zeus_env,
+    _handle_auth_command,
+    _handle_config_command,
+    _handle_learning_command,
+    _handle_mcp_command,
+    _handle_mode_command,
+    _load_env,
+    _print_brain_dashboard,
+    _print_command_menu,
+    _print_config_menu,
+    _print_learning_menu,
+    _print_mcp_menu,
+    _print_mode_menu,
+    _print_skills_menu,
+    _set_zeus_env,
+)
+from zeus.cli.renderer import (
+    _COLOR_ENABLED,
+    _apply_inline_formatting,
+    _color,
+    _context_bar,
+    _format_command_lines,
+    _format_duration,
+    _format_markdown_for_cli,
+    _format_tokens,
+    _get_term_width,
+    _pad_center,
+    _pad_left,
+    _print_agent_response,
+    _print_banner,
+    _print_live_output,
+    _print_plan,
+    _print_prompt_header,
+    _print_step_result,
+    _print_tool_execution,
+    _print_tool_result,
+    _print_user_closing,
+    _supports_color,
+    _truncate_visible,
+    _visible_width,
+    _wrap_ansi_line,
+)
+from zeus.core.agent import run_agent, run_summary  # noqa: E402
+from zeus.core.planner import execute_plan_step, generate_bmad_plan, generate_plan  # noqa: E402
+from zeus.core.registry import REGISTRY  # noqa: E402
+from zeus.core.team import create_default_team  # noqa: E402
+from zeus.memory.session_log import get_logger  # noqa: E402
+from zeus.observability import get_metrics  # noqa: E402
+from zeus.tools import (  # noqa: E402,F401
+    browser,
+    code_execution,
+    config_tools,
+    database,
+    file,
+    git,
+    learning_tools,
+    manage_packages,
+    memory_tools,
+    sandbox,
+    sandbox_client,
+    scheduler,
+    ssh_run,
+    terminal,
+    user_profile_tools,
+    web,
+)
+
 
 class ZeusCommandCompleter(Completer):
     """Autocompletion menu for CLI slash commands."""
@@ -90,8 +160,6 @@ class ZeusCommandCompleter(Completer):
                                 display=name,
                             )
                         else:
-                            # No space typed yet: prepend one so it doesn't
-                            # glue onto "/mode" -> "/modesandbox".
                             yield Completion(
                                 " " + name,
                                 start_position=0,
@@ -106,6 +174,7 @@ class ZeusCommandCompleter(Completer):
                         display=cmd,
                         display_meta=desc,
                     )
+
 
 SKILL_SETS: Dict[str, Dict[str, Any]] = {
     "coding": {
@@ -136,71 +205,8 @@ SKILL_SETS: Dict[str, Dict[str, Any]] = {
 }
 
 
-def _current_skill_label(active_filter: Optional[set]) -> str:
-    if not active_filter:
-        return "all"
-    for key, cfg in SKILL_SETS.items():
-        if cfg["tags"] == active_filter:
-            return key
-    return "custom"
-
-
-def _print_skills_menu(active_filter: Optional[set]) -> None:
-    """Print a visual menu of available skill sets."""
-    term_width = _get_term_width()
-    title = " 🧛 SKILL SETS "
-    line_length = max(10, term_width - len(title) - 6)
-    top = _color("╭──", 33) + _color(title, "1;33") + _color("─" * line_length, 33)
-    bottom = _color("╰" + "─" * (term_width - 3), 33)
-
-    current = _current_skill_label(active_filter)
-
-    print()
-    print(top)
-    print(f"{_color('│', 33)}  {_color('Ativo:', 90)} {SKILL_SETS[current]['label'] if current in SKILL_SETS else current}")
-    print(f"{_color('│', 33)}")
-    max_key = max(len(key) for key in SKILL_SETS)
-    for key, cfg in SKILL_SETS.items():
-        marker = _color("●", 32) if key == current else " "
-        pad = " " * (max_key - len(key))
-        tags = "todas" if cfg["tags"] is None else ", ".join(sorted(cfg["tags"]))
-        print(f"{_color('│', 33)}  {marker} {_color('/skills ' + key, '1;33')}{pad}  {cfg['label']} {_color('[' + tags + ']', 90)}")
-    print(f"{_color('│', 33)}")
-    print(f"{_color('│', 33)}  {_color('Uso:', 90)} /skills <nome>  ou  /skills para este menu")
-    print(bottom)
-    print()
-
-
-from zeus.core.agent import run_agent, run_summary  # noqa: E402
-from zeus.core.planner import execute_plan_step, generate_bmad_plan, generate_plan  # noqa: E402
-from zeus.core.registry import REGISTRY  # noqa: E402
-from zeus.core.team import create_default_team  # noqa: E402
-from zeus.memory.session_log import get_logger  # noqa: E402
-from zeus.observability import get_metrics  # noqa: E402
-from zeus.tools import (  # noqa: E402,F401
-    browser,
-    code_execution,
-    config_tools,
-    database,
-    file,
-    git,
-    learning_tools,
-    manage_packages,
-    memory_tools,
-    sandbox,
-    sandbox_client,
-    scheduler,
-    ssh_run,
-    terminal,
-    user_profile_tools,
-    web,
-)
-
-
 def _ask_file_permission(session: PromptSession, message: str) -> Any:
     """Interactive confirmation for file write/delete actions with a dynamic card design (Bilingual EN/PT)."""
-    from prompt_toolkit.formatted_text import ANSI
-
     term_width = _get_term_width()
     title = " 🔒 FILE PERMISSION / PERMISSÃO DE ARQUIVO "
     line_length = max(10, term_width - len(title) - 6)
@@ -267,11 +273,7 @@ def _ask_terminal_permission_prompt(message: str) -> Any:
 
 
 def _prompt_hidden(message: str) -> str:
-    """Read a line with fully hidden input (no echo, no asterisks).
-
-    getpass disables terminal echo only for the duration of this read and
-    restores it immediately after, so the rest of the session is unaffected.
-    """
+    """Read a line with fully hidden input (no echo, no asterisks)."""
     return getpass.getpass(message)
 
 
@@ -336,1100 +338,6 @@ def _handle_sudo_required(result: Dict[str, Any], session: PromptSession) -> Opt
         return {"error": str(e)}
 
 
-
-def _load_env(override: bool = False) -> None:
-    """Load .env from ~/.zeus/.env or the project root if present."""
-    zeus_home = Path(os.getenv("ZEUS_HOME", os.path.expanduser("~/.zeus")))
-    paths = [zeus_home / ".env", Path.cwd() / ".env"]
-    install_dir = os.getenv("ZEUS_INSTALL_DIR")
-    if install_dir:
-        paths.append(Path(install_dir) / ".env")
-    for env_file in paths:
-        if env_file.exists():
-            load_dotenv(env_file, override=override)
-
-    # Sync GEMINI_API_KEY and GOOGLE_API_KEY aliases
-    gemini_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-    if gemini_key:
-        os.environ["GEMINI_API_KEY"] = gemini_key
-        os.environ["GOOGLE_API_KEY"] = gemini_key
-
-
-
-
-def _format_duration(seconds: float) -> str:
-    if seconds < 60:
-        return f"{int(seconds)}s"
-    minutes = int(seconds // 60)
-    secs = int(seconds % 60)
-    if minutes < 60:
-        return f"{minutes}m{secs:02d}s"
-    hours = minutes // 60
-    minutes = minutes % 60
-    return f"{hours}h{minutes:02d}m"
-
-
-def _format_tokens(count: int) -> str:
-    """Format token count into human readable notation (e.g., 500, 1.2k, 12k, 15m)."""
-    if count < 1000:
-        return str(count)
-    elif count < 1_000_000:
-        val = count / 1000.0
-        return f"{val:.1f}k" if val < 10 else f"{int(val)}k"
-    elif count < 1_000_000_000:
-        val = count / 1_000_000.0
-        return f"{val:.1f}m" if val < 10 else f"{int(val)}m"
-    else:
-        val = count / 1_000_000_000.0
-        return f"{val:.1f}b" if val < 10 else f"{int(val)}b"
-
-
-def _context_bar(session_id: str, width: int = 12) -> str:
-    """Render an ASCII progress bar showing current context usage percentage.
-
-    Estimates context size from session history plus system prompt, using
-    ZEUS_MAX_CONTEXT_TOKENS (default 8000) as the limit. Colors shift from
-    green to yellow to red as usage grows.
-    """
-    from zeus.memory.context import estimate_tokens
-
-    max_tokens = int(os.getenv("ZEUS_MAX_CONTEXT_TOKENS", "8000"))
-    if max_tokens <= 0:
-        max_tokens = 8000
-
-    try:
-        from zeus.memory.session_log import get_session_messages
-        messages = get_session_messages(session_id, limit=100)
-    except Exception:
-        messages = []
-
-    # rough system prompt estimate; actual prompt is built in agent.py
-    system_estimate = 1500
-    history_tokens = sum(estimate_tokens(m.get("content", "")) for m in messages)
-    total_tokens = system_estimate + history_tokens
-
-    ratio = min(total_tokens / max_tokens, 1.0)
-    percent = int(ratio * 100)
-    filled = int(ratio * width)
-    empty = width - filled
-    bar_body = "█" * filled + "░" * empty
-    if percent < 60:
-        color = "1;32"
-    elif percent < 85:
-        color = "1;33"
-    else:
-        color = "1;31"
-    return _color(f"{bar_body} {percent}%", color)
-
-
-def _supports_color() -> bool:
-    """Return True if the terminal supports ANSI colors.
-
-    Honors NO_COLOR, FORCE_COLOR, TERM=dumb, and non-TTY output.
-    """
-    if os.getenv("FORCE_COLOR", "").strip():
-        return True
-    if os.getenv("NO_COLOR", "").strip():
-        return False
-    if os.getenv("TERM", "").lower() == "dumb":
-        return False
-    if not (sys.stdout.isatty() and sys.stderr.isatty()):
-        return False
-    return True
-
-
-_COLOR_ENABLED: Optional[bool] = None
-
-
-def _color(text: str, code: Any) -> str:
-    """Wrap text in ANSI color codes when color is enabled."""
-    global _COLOR_ENABLED
-    if _COLOR_ENABLED is None:
-        _COLOR_ENABLED = _supports_color()
-    if not _COLOR_ENABLED:
-        return text
-    return f"\033[{code}m{text}\033[0m"
-
-
-def _visible_width(text: str) -> int:
-    """Return visible width of a string, stripping ANSI escape codes."""
-    import re
-    return len(re.sub(r"\x1b\[[0-9;]*m", "", text))
-
-
-def _truncate_visible(text: str, width: int, suffix: str = "...") -> str:
-    """Truncate text so visible width <= width, preserving ANSI codes."""
-    if _visible_width(text) <= width:
-        return text
-    suffix_width = _visible_width(suffix)
-    avail = max(0, width - suffix_width)
-    import re
-    # Strip ANSI, truncate, then re-apply the leading ANSI codes from original
-    plain = re.sub(r"\x1b\[[0-9;]*m", "", text)
-    # Find leading ANSI codes
-    leading_codes = ""
-    match = re.match(r"(\x1b\[[0-9;]*m)+", text)
-    if match:
-        leading_codes = match.group(0)
-    truncated = plain[:avail]
-    return f"{leading_codes}{truncated}{suffix}\033[0m"
-
-
-def _pad_center(text: str, width: int) -> str:
-    vis = _visible_width(text)
-    if vis > width:
-        text = _truncate_visible(text, width)
-        vis = _visible_width(text)
-    pad = width - vis
-    left = pad // 2
-    right = pad - left
-    return " " * left + text + " " * right
-
-
-def _pad_left(text: str, width: int) -> str:
-    vis = _visible_width(text)
-    if vis > width:
-        text = _truncate_visible(text, width)
-        vis = _visible_width(text)
-    pad = width - vis
-    return text + " " * pad
-
-
-def _format_command_lines(inner_width: int) -> List[str]:
-    """Format the slash-command list into two balanced lines inside the banner."""
-    prefix = "  Comandos:"
-    prefix_width = _visible_width(prefix)
-    commands = ["/new", "/reset", "/clear", "/skills", "/models", "/mode", "/summary", "/help", "/exit"]
-
-    # Try to split into two balanced groups
-    mid = (len(commands) + 1) // 2
-    group1 = commands[:mid]
-    group2 = commands[mid:]
-
-    line1 = prefix + " " + "  ".join(group1)
-    line2 = " " * prefix_width + " " + "  ".join(group2)
-
-    # If the first group is too wide, fall back to greedy wrapping
-    if _visible_width(line1) > inner_width:
-        lines: List[str] = []
-        current = prefix
-        current_width = prefix_width
-        indent = " " * prefix_width
-        for cmd in commands:
-            cmd_width = _visible_width(cmd)
-            if current == prefix:
-                separator = " "
-                sep_width = 1
-            else:
-                separator = "  "
-                sep_width = 2
-            if current_width + sep_width + cmd_width <= inner_width:
-                current += separator + cmd
-                current_width += sep_width + cmd_width
-            else:
-                lines.append(current)
-                current = indent + " " + cmd
-                current_width = prefix_width + 1 + cmd_width
-        if current:
-            lines.append(current)
-        return lines
-
-    if _visible_width(line2) > inner_width:
-        # Second group too long; move commands to new lines
-        lines = [line1]
-        current = " " * prefix_width
-        current_width = prefix_width
-        for cmd in group2:
-            cmd_width = _visible_width(cmd)
-            separator = "" if current == " " * prefix_width else "  "
-            sep_width = 0 if current == " " * prefix_width else 2
-            if current_width + sep_width + cmd_width <= inner_width:
-                current += separator + cmd
-                current_width += sep_width + cmd_width
-            else:
-                lines.append(current)
-                current = " " * prefix_width + cmd
-                current_width = prefix_width + cmd_width
-        if current:
-            lines.append(current)
-        return lines
-
-    return [line1, line2]
-
-
-def _print_banner(logger, metrics) -> None:
-    """Print a styled startup banner with session info inside a double-line box."""
-    model = os.getenv("ZEUS_MODEL", "unknown")
-    provider = os.getenv("ZEUS_PROVIDER", "unknown")
-    snap = metrics.snapshot()
-    duration = _format_duration(time.time() - snap.get("started_at", time.time()))
-
-    zeus_ascii = [
-        _color('███████╗ ███████╗ ██   ██ ███████╗', 36),
-        _color('╚══███╔╝ ██╔════╝ ██   ██ ██╔════╝', 36),
-        _color('  ███╔╝  █████╗   ██   ██ ███████╗', 36),
-        _color(' ███╔╝   ██╔══╝   ██   ██ ╚════██║', 36),
-        _color('███████╗ ███████╗ ╚████╔╝ ███████║', 36),
-        _color('╚══════╝ ╚══════╝  ╚═══╝ ╚══════╝', 36),
-    ]
-
-    label = f"{_color('Zeus Agent Harness', 1)}{_color('  v0.1.0', 90)}"
-    info_lines = [
-        f"  {_color('Provider:', 90)} {provider}",
-        f"  {_color('Model:', 90)}    {model}",
-        f"  {_color('Session:', 90)}  {logger.session_id[:12]}",
-        f"  {_color('Uptime:', 90)}   {duration}",
-        "",
-    ]
-
-    inner_width = max(50, min(_get_term_width() - 4, 80))
-    info_lines.extend(_format_command_lines(inner_width))
-
-    top = _color('╔' + '═' * inner_width + '╗', 90)
-    bottom = _color('╚' + '═' * inner_width + '╝', 90)
-
-    def box_line(text: str = "", center: bool = False) -> str:
-        text = _truncate_visible(text, inner_width)
-        if center:
-            content = _pad_center(text, inner_width)
-        else:
-            content = _pad_left(text, inner_width)
-        return _color('║', 90) + content + _color('║', 90)
-
-    lines = ["", top]
-    for row in zeus_ascii:
-        lines.append(box_line(row, center=True))
-    lines.append(box_line())
-    lines.append(box_line(label, center=True))
-    lines.append(box_line())
-    for info in info_lines:
-        lines.append(box_line(info))
-    lines.append(bottom)
-    lines.append("")
-    print("\n".join(lines))
-
-
-def _get_term_width() -> int:
-    cols = shutil.get_terminal_size(fallback=(80, 24)).columns
-    return max(40, min(cols, 160))
-
-
-def _apply_inline_formatting(text: str) -> str:
-    """Apply ANSI styling to inline markdown elements: **bold**, `code`, key-value tags."""
-    import re
-    # Bold **text** -> \033[1;37mtext\033[0m
-    text = re.sub(r"\*\*(.*?)\*\*", r"\033[1;37m\1\033[0m", text)
-    # Inline code `code` -> \033[1;36mcode\033[0m
-    text = re.sub(r"`([^`]+)`", r"\033[1;36m\1\033[0m", text)
-    # Key-value pattern (e.g. Status: ok) -> \033[1;33mKey:\033[0m Value
-    text = re.sub(r"^([A-Z][a-zA-Z0-9_\s-]{1,25}:)", r"\033[1;33m\1\033[0m", text)
-    return text
-
-
-def _wrap_ansi_line(text: str, max_width: int) -> List[str]:
-    """Wrap a string containing ANSI escape sequences so visible width <= max_width."""
-    if _visible_width(text) <= max_width:
-        return [text]
-
-    words = text.split(" ")
-    lines: List[str] = []
-    current_line = ""
-
-    for word in words:
-        if not current_line:
-            current_line = word
-        elif _visible_width(current_line + " " + word) <= max_width:
-            current_line += " " + word
-        else:
-            lines.append(current_line)
-            current_line = word
-
-    if current_line:
-        lines.append(current_line)
-
-    return lines if lines else [text]
-
-
-def _format_markdown_for_cli(text: str, max_width: int = 80) -> List[str]:
-    """Format markdown response for CLI rendering with color, structure, and proper line wrapping."""
-    import re
-    if not text:
-        return [""]
-
-    lines = text.splitlines()
-    formatted: List[str] = []
-    in_code_block = False
-    code_lang = ""
-
-    for line in lines:
-        stripped = line.strip()
-
-        # Code block delimiter
-        if stripped.startswith("```"):
-            if not in_code_block:
-                in_code_block = True
-                code_lang = stripped[3:].strip()
-                lang_tag = f" [{code_lang}]" if code_lang else ""
-                header = f"┌─ 💻 CODE{lang_tag} "
-                pad_len = max(2, max_width - _visible_width(header))
-                formatted.append(_color(header + "─" * pad_len, "1;30"))
-            else:
-                in_code_block = False
-                formatted.append(_color("└─" + "─" * max(2, max_width - 2), "1;30"))
-            continue
-
-        if in_code_block:
-            code_line = _color("  " + line, "1;36")
-            for wl in _wrap_ansi_line(code_line, max_width):
-                formatted.append(wl)
-            continue
-
-        if not stripped:
-            formatted.append("")
-            continue
-
-        # Markdown Headers
-        if stripped.startswith("# "):
-            title = stripped[2:].strip()
-            formatted.append(_color(f"📌 {title.upper()}", "1;33;4"))
-            continue
-        elif stripped.startswith("## "):
-            title = stripped[3:].strip()
-            formatted.append(_color(f"🔹 {title}", "1;33"))
-            continue
-        elif stripped.startswith("### "):
-            title = stripped[4:].strip()
-            formatted.append(_color(f"▸ {title}", "1;37"))
-            continue
-
-        # Bullet lists & numbered lists
-        is_bullet = False
-        prefix = ""
-        content = ""
-        if stripped.startswith(("- ", "* ", "• ")):
-            prefix = _color("  • ", "1;32")
-            content = stripped[2:]
-            is_bullet = True
-        elif re.match(r"^\d+\.\s", stripped):
-            parts = stripped.split(".", 1)
-            prefix = _color(f"  {parts[0]}.", "1;32")
-            content = parts[1].strip()
-            is_bullet = True
-
-        if is_bullet:
-            content_styled = _apply_inline_formatting(content)
-            avail_width = max(10, max_width - 5)
-            wrapped_items = _wrap_ansi_line(content_styled, avail_width)
-            if wrapped_items:
-                formatted.append(f"{prefix} {wrapped_items[0]}")
-                for wi in wrapped_items[1:]:
-                    formatted.append(f"    {wi}")
-            else:
-                formatted.append(prefix)
-            continue
-
-        # Regular text paragraph with inline formatting
-        styled_line = _apply_inline_formatting(line)
-        for wl in _wrap_ansi_line(styled_line, max_width):
-            formatted.append(wl)
-
-    return formatted
-
-
-def _print_agent_response(response: str, title: str = "ZEUS", model: str = "", status: str = "ok") -> None:
-    """Print the AI response wrapped in an open-ended left-bordered card dynamic to terminal width."""
-    term_width = _get_term_width()
-    model_name = os.getenv("ZEUS_MODEL", model or "agent")
-
-    border_color = "36"
-    status_label = ""
-    if status == "warning":
-        border_color = "33"
-        status_label = " " + _color("[ Atenção ]", "1;33")
-    elif status == "error":
-        border_color = "31"
-        status_label = " " + _color("[ Erro ]", "1;31")
-
-    header_title = f" 🤖 {title} ({model_name}) "
-    inner_width = max(20, term_width - 6)
-
-    top = _color("╭──", border_color) + _color(header_title, f"1;{border_color}") + status_label
-    top_vis = _visible_width(top)
-    pad_len = max(2, term_width - top_vis - 1)
-    top += _color("─" * pad_len, border_color)
-
-
-    bottom = _color("╰" + "─" * (term_width - 3), border_color)
-
-    from zeus.core.agent import clean_agent_response
-    clean_resp = clean_agent_response(str(response or ""))
-    formatted_lines = _format_markdown_for_cli(clean_resp, max_width=inner_width)
-
-    print()
-    print(top)
-    for line in formatted_lines:
-        print(f"{_color('│', border_color)} {line}")
-    print(bottom)
-    print()
-
-
-
-def _print_command_menu() -> None:
-    """Print a visual menu of available slash commands."""
-    term_width = _get_term_width()
-    title = " ⚡ MENU DE COMANDOS "
-    line_length = max(10, term_width - len(title) - 6)
-    top = _color("╭──", 33) + _color(title, "1;33") + _color("─" * line_length, 33)
-    bottom = _color("╰" + "─" * (term_width - 3), 33)
-
-    commands = [
-        ("/new", "Cria uma nova sessão (novo ID)"),
-        ("/reset", "Reseta a sessão atual (mantém ID, zera métricas)"),
-        ("/clear", "Limpa a tela"),
-        ("/summary", "Mostra resumo da sessão"),
-        ("/skills", "Seleciona um skill set/persona para filtrar ferramentas"),
-        ("/auth", "Autentica Google Gemini via browser (provider google_auth)"),
-        ("/mcp", "Gerencia servidores Model Context Protocol (MCP)"),
-        ("/config", "Gerencia configurações do Zeus (get/set/list)"),
-        ("/learn", "Aprendizados passados (list/search/add/stats/forget)"),
-        ("/brain", "Dashboard de inteligência e aprendizado contínuo"),
-        ("/models", "Troca o provedor e modelo LLM"),
-        ("/mode <sandbox|terminal|auto|dryrun|readonly>", "Alterna modo de execução e segurança"),
-        ("/mode file <read_only|project_only|unrestricted>", "Define permissão de arquivo"),
-        ("/mode status", "Mostra apenas o status atual do agente"),
-        ("/plan <tarefa>", "Cria e executa um plano passo a passo"),
-        ("/plan bmad <ideia>", "Análise BMAD de modelo de negócio"),
-        ("/team <tarefa>", "Executa com equipe multi-agente"),
-        ("/help", "Mostra este menu"),
-        ("/exit", "Encerra o Zeus"),
-    ]
-
-    print()
-    print(top)
-    print(f"{_color('│', 33)}  {_color('Digite /comando ou escolha abaixo:', 90)}")
-    print(f"{_color('│', 33)}")
-    max_cmd = max(len(cmd) for cmd, _ in commands)
-    for cmd, desc in commands:
-        pad = " " * (max_cmd - len(cmd))
-        print(f"{_color('│', 33)}  {_color(cmd, '1;33')}{pad}  {desc}")
-    print(bottom)
-    print()
-
-
-def _print_mcp_menu() -> None:
-    """Print status of configured MCP servers and active tools."""
-    from zeus.mcp import get_mcp_manager
-    mgr = get_mcp_manager()
-    statuses = mgr.list_status()
-
-    term_width = _get_term_width()
-    title = " 🔌 MODEL CONTEXT PROTOCOL (MCP) "
-    line_length = max(10, term_width - len(title) - 6)
-    top = _color("╭──", 33) + _color(title, "1;33") + _color("─" * line_length, 33)
-    bottom = _color("╰" + "─" * (term_width - 3), 33)
-
-    print()
-    print(top)
-    if not statuses:
-        print(f"{_color('│', 33)}  {_color('Nenhum servidor MCP configurado.', 90)}")
-        print(f"{_color('│', 33)}  {_color('Adicione um servidor:', 90)} /mcp add <nome> <comando_ou_url> [args...]")
-    else:
-        for srv in statuses:
-            status_symbol = _color("● Ativo", 32) if srv["active"] else _color("○ Inativo", 31)
-            type_label = _color(f"[{srv['type'].upper()}]", 36)
-            cmd = _color(srv["command_or_url"], 90)
-            tools_info = _color(f"({srv['tool_count']} ferramentas)", 33) if srv["active"] else ""
-            print(f"{_color('│', 33)}  {status_symbol} {_color(srv['name'], '1;37')} {type_label} - {cmd}  {tools_info}")
-
-    print(f"{_color('│', 33)}")
-    print(f"{_color('│', 33)}  {_color('Comandos MCP:', 90)}")
-    print(f"{_color('│', 33)}    • {_color('/mcp list', 33)}                        - Lista servidores e status")
-    print(f"{_color('│', 33)}    • {_color('/mcp add <nome> <cmd|url> [args]', 33)} - Adiciona e conecta novo servidor")
-    print(f"{_color('│', 33)}    • {_color('/mcp remove <nome>', 33)}              - Remove um servidor MCP")
-    print(f"{_color('│', 33)}    • {_color('/mcp reload', 33)}                     - Reconecta todos os servidores")
-    print(bottom)
-    print()
-
-
-def _handle_mcp_command(text: str) -> None:
-    """Handle /mcp subcommands."""
-    from zeus.mcp import get_mcp_manager
-    mgr = get_mcp_manager()
-    parts = text.split()
-    subcmd = parts[1].lower() if len(parts) > 1 else "list"
-
-    if subcmd in ("list", "ls", "status"):
-        _print_mcp_menu()
-    elif subcmd == "reload":
-        print(f"\n{_color('🔄 Reconectando servidores MCP...', 33)}")
-        res = mgr.reload()
-        for name, ok in res.items():
-            status = _color("Conectado", 32) if ok else _color("Falhou", 31)
-            print(f"  • {name}: {status}")
-        print()
-    elif subcmd in ("remove", "rm", "delete"):
-        if len(parts) < 3:
-            print(f"\n{_color('❌ Uso:', '1;31')} /mcp remove <nome_do_servidor>\n")
-            return
-        name = parts[2]
-        if mgr.remove_server(name):
-            print(f"\n{_color('✅ Servidor MCP removido:', 32)} {name}\n")
-        else:
-            print(f"\n{_color('❌ Servidor MCP não encontrado:', '1;31')} {name}\n")
-    elif subcmd in ("add", "connect"):
-        if len(parts) < 3:
-            print(f"\n{_color('❌ Uso:', '1;31')} /mcp add <nome> [comando_ou_url] [args...]")
-            print(f"{_color('Exemplo (Preset):', 90)} /mcp add gemini")
-            print(f"{_color('Exemplo (Custom):', 90)} /mcp add meuteste npx -y @modelcontextprotocol/server-memory\n")
-            return
-        name = parts[2]
-        cmd_or_url = parts[3] if len(parts) > 3 else name
-        args = parts[4:] if len(parts) > 4 else []
-        print(f"\n{_color('🔌 Conectando servidor MCP:', 33)} {name}...")
-        try:
-            ok = mgr.add_server(name, cmd_or_url, args=args)
-        except Exception as exc:
-            ok = False
-            print(f"{_color('❀ Detalhes técnicos:', 90)} {exc}")
-        if ok:
-            client = mgr.clients.get(name)
-            tool_cnt = len(client.tools) if client else 0
-            print(f"{_color('✅ Conectado com sucesso!', 32)} {tool_cnt} ferramentas disponíveis.\n")
-        else:
-            print(f"{_color('❌ Falha ao conectar ao servidor MCP.', '1;31')}\n")
-
-    else:
-        _print_mcp_menu()
-
-
-def _print_brain_dashboard() -> None:
-    """Print continuous learning and intelligence statistics dashboard."""
-    from zeus.memory.learning import LearningStore
-    from zeus.memory.reasoning import ReasoningMemory
-    from zeus.memory.store import MemoryStore
-    from zeus.memory.user_profile import UserProfileStore
-
-    l_store = LearningStore()
-    l_stats = l_store.get_stats()
-
-    m_store = MemoryStore()
-    m_keys = m_store.keys()
-
-    p_store = UserProfileStore()
-    profiles = p_store.list_profiles()
-
-    r_mem = ReasoningMemory()
-    r_entries = r_mem.recall("", limit=100)
-
-    term_width = _get_term_width()
-    title = " 🧠 ZEUS CONTINUOUS LEARNING & BRAIN DASHBOARD "
-    line_length = max(10, term_width - len(title) - 6)
-    top = _color("╭──", 36) + _color(title, "1;36") + _color("─" * line_length, 36)
-    bottom = _color("╰" + "─" * (term_width - 3), 36)
-
-    print()
-    print(top)
-    print(f"{_color('│', 36)}  {_color('📊 Padrões Aprendidos (Continuous Learning Store):', '1;37')}")
-    print(f"{_color('│', 36)}    • Total de Aprendizados: {_color(str(l_stats['total_learnings']), 33)}")
-    print(f"{_color('│', 36)}    • Auto-Aprendidos em Sessões: {_color(str(l_stats['auto_learned']), 32)}")
-    print(f"{_color('│', 36)}    • Alta Relevância (Score > 0): {_color(str(l_stats['high_effectiveness']), 32)}")
-    if l_stats["tags_summary"]:
-        tags_str = ", ".join(f"{k}:{v}" for k, v in list(l_stats["tags_summary"].items())[:6])
-        print(f"{_color('│', 36)}    • Tags Principais: {_color(tags_str, 90)}")
-
-    print(f"{_color('│', 36)}")
-    print(f"{_color('│', 36)}  {_color('💡 Raciocínios e Estratégias Salvas (Reasoning Memory):', '1;37')}")
-    print(f"{_color('│', 36)}    • Padrões de Raciocínio: {_color(str(len(r_entries)), 33)}")
-
-    print(f"{_color('│', 36)}")
-    print(f"{_color('│', 36)}  {_color('👤 Conhecimento sobre Usuário & Perfil:', '1;37')}")
-    print(f"{_color('│', 36)}    • Perfis Ativos: {_color(str(len(profiles)), 33)}")
-    print(f"{_color('│', 36)}    • Chaves de Conhecimento Persistente: {_color(str(len(m_keys)), 33)}")
-
-    print(f"{_color('│', 36)}")
-    print(f"{_color('│', 36)}  {_color('⚡ O Zeus aprende autonomamente após resoluções e avalia feedback do usuário!', 90)}")
-    print(bottom)
-    print()
-
-
-def _print_learning_menu() -> None:
-    """Print a visual menu for the /learn command."""
-    term_width = _get_term_width()
-    title = " 📚 APRENDIZADOS "
-    line_length = max(10, term_width - len(title) - 6)
-    top = _color("╭──", 33) + _color(title, "1;33") + _color("─" * line_length, 33)
-    bottom = _color("╰" + "─" * (term_width - 3), 33)
-
-    print()
-    print(top)
-    print(f"{_color('│', 33)}  {_color('Comandos:', 90)}")
-    print(f"{_color('│', 33)}    • {_color('/learn', 33)}                       - Menu de aprendizados")
-    print(f"{_color('│', 33)}    • {_color('/learn list', 33)}                  - Lista recentes")
-    print(f"{_color('│', 33)}    • {_color('/learn search <query>', 33)}        - Busca aprendizados por palavra-chave")
-    print(f"{_color('│', 33)}    • {_color('/learn add <p> | <s> [tags]', 33)} - Adiciona aprendizado manual")
-    print(f"{_color('│', 33)}    • {_color('/learn rate <id> <+1/-1>', 33)}    - Avalia aprendizado")
-    print(f"{_color('│', 33)}    • {_color('/learn stats', 33)}                 - Dashboard de inteligência / brain")
-    print(f"{_color('│', 33)}    • {_color('/learn forget <id>', 33)}            - Remove aprendizado específico")
-    print(bottom)
-    print()
-
-
-def _handle_learning_command(text: str) -> None:
-    """Handle /learn subcommands."""
-    from zeus.memory.learning import LearningStore
-
-    parts = text.split(maxsplit=1)
-    subcmd = parts[1].lower().strip() if len(parts) > 1 else "menu"
-
-    store = LearningStore()
-
-    if subcmd == "menu" or subcmd == "":
-        _print_learning_menu()
-        return
-
-    if subcmd in ("stats", "brain", "dashboard"):
-        _print_brain_dashboard()
-        return
-
-    if subcmd == "list":
-        learnings = store.list_recent(limit=10)
-        print(f"\n{_color('📚 Aprendizados recentes:', 33)}")
-        if not learnings:
-            print(f"  {_color('Nenhum aprendizado registrado ainda.', 90)}")
-        for item in learnings:
-            score = item.get("effectiveness_score", 0)
-            score_color = 32 if score > 0 else 31 if score < 0 else 90
-            item_id = item.get("id")
-            item_problem = item.get("problem", "")[:60]
-            item_tags = ", ".join(item.get("tags", []))
-            print(f"  {_color(f'[{item_id}]', '1;33')} {item_problem}")
-            print(f"    {_color('Score:', score_color)} {score} {_color('Tags:', 90)} {item_tags}")
-        print()
-        return
-
-    if subcmd.startswith("search "):
-        query = subcmd[len("search "):].strip()
-        results = store.search(query, limit=5)
-        print(f"\n{_color('🔍 Resultados:', 33)} {query}\n")
-        if not results:
-            print(f"  {_color('Nenhum aprendizado encontrado para essa busca.', 90)}")
-        for item in results:
-            item_id = item.get("id")
-            item_problem = item.get("problem", "")
-            item_solution = item.get("solution", "")[:120]
-            print(f"  {_color(f'[{item_id}]', '1;33')} {item_problem}")
-            print(f"    {_color('Solução:', 90)} {item_solution}")
-        print()
-        return
-
-    if subcmd.startswith("add "):
-        payload = subcmd[len("add "):].strip()
-        if "|" not in payload:
-            print(f"\n{_color('❌ Uso:', '1;31')} /learn add <problema> | <solução> [tags:tag1,tag2]\n")
-            return
-        problem, rest = payload.split("|", 1)
-        solution = rest.strip()
-        tags = []
-        if "tags:" in solution:
-            solution, tags_str = solution.rsplit("tags:", 1)
-            tags = [t.strip() for t in tags_str.split(",") if t.strip()]
-        learning_id = store.save(
-            problem=problem.strip(),
-            solution=solution.strip(),
-            tags=list(set(tags + ["manual"])),
-            effectiveness_score=2,
-        )
-        print(f"\n{_color('✅ Aprendizado salvo:', 32)} ID {learning_id}\n")
-        return
-
-    if subcmd.startswith("rate "):
-        rest = subcmd[len("rate "):].strip()
-        tokens = rest.split()
-        if len(tokens) < 2 or not tokens[0].isdigit() or tokens[1] not in ("+1", "-1"):
-            print(f"\n{_color('❌ Uso:', '1;31')} /learn rate <id> <+1/-1>\n")
-            return
-        learning_id = int(tokens[0])
-        helpful = tokens[1] == "+1"
-        store.rate(learning_id, helpful)
-        print(f"\n{_color('✅ Feedback registrado:', 32)} ID {learning_id} {'+1' if helpful else '-1'}\n")
-        return
-
-    if subcmd.startswith("forget ") or subcmd.startswith("delete "):
-        rest = subcmd.split(maxsplit=1)[1].strip()
-        if not rest.isdigit():
-            print(f"\n{_color('❌ Uso:', '1;31')} /learn forget <id>\n")
-            return
-        learning_id = int(rest)
-        store.delete(learning_id)
-        print(f"\n{_color('✅ Aprendizado removido:', 32)} ID {learning_id}\n")
-        return
-
-    _print_learning_menu()
-
-
-def _print_config_menu(config: Dict[str, Any]) -> None:
-    """Print current Zeus configuration in a visual card."""
-    term_width = _get_term_width()
-    title = " ⚙️ CONFIGURAÇÃO ZEUS "
-    line_length = max(10, term_width - len(title) - 6)
-    top = _color("╭──", 33) + _color(title, "1;33") + _color("─" * line_length, 33)
-    bottom = _color("╰" + "─" * (term_width - 3), 33)
-
-    print()
-    print(top)
-    print(f"{_color('│', 33)}  {_color('Provider:', 90)} {config.get('zeus_provider', 'unknown')}")
-    print(f"{_color('│', 33)}  {_color('Model:', 90)}    {config.get('zeus_model', 'unknown')}")
-    print(f"{_color('│', 33)}  {_color('Max turns:', 90)} {config.get('max_turns', 'unknown')}")
-    print(f"{_color('│', 33)}  {_color('Config file:', 90)} {config.get('config_file', 'unknown')}")
-    print(f"{_color('│', 33)}")
-    print(f"{_color('│', 33)}  {_color('API Keys:', 90)}")
-    for key, value in config.get("api_keys_status", {}).items():
-        print(f"{_color('│', 33)}    • {_color(key, '1;37')}: {value}")
-    print(f"{_color('│', 33)}")
-    print(f"{_color('│', 33)}  {_color('Comandos:', 90)}")
-    print(f"{_color('│', 33)}    • {_color('/config', 33)}                  - Mostra configuração atual")
-    print(f"{_color('│', 33)}    • {_color('/config get <key>', 33)}      - Lê valor de uma variável")
-    print(f"{_color('│', 33)}    • {_color('/config set <key> <value>', 33)} - Define variável não secreta no .env ou config.yaml")
-    print(f"{_color('│', 33)}    • {_color('/config set OPENCODE_GO_API_KEY', 33)} - Define/troca a chave via prompt mascarado")
-    print(f"{_color('│', 33)}    • {_color('/config set max_turns <n>', 33)} - Define limite de turnos do agente")
-    print(f"{_color('│', 33)}    • {_color('/config list-models [provider]', 33)} - Lista modelos disponíveis")
-    print(bottom)
-    print()
-
-
-def _handle_mode_command(text: str) -> None:
-    """Handle /mode subcommands to switch execution permission and runtime mode."""
-    from zeus.security.permissions import PermissionManager
-
-    parts = text.split(maxsplit=1)
-    subcmd = parts[1].lower().strip() if len(parts) > 1 else ""
-
-    pm = PermissionManager()
-    _ = pm  # avoid unused variable lint; instance is used for side-effects
-
-    from zeus.security.permissions import get_global_permission_manager
-
-    if subcmd in ("", "menu"):
-        _print_mode_menu(show_commands=True)
-        return
-
-    if subcmd == "status":
-        _print_mode_menu(show_commands=False)
-        return
-
-    pm = get_global_permission_manager()
-
-    if subcmd in ("sandbox", "safe"):
-        _set_zeus_env("ZEUS_EXECUTION_PERMISSION", "sandbox_only")
-        _set_zeus_env("ZEUS_EXECUTION_MODE", "terminal")
-        _set_zeus_env("ZEUS_DRY_RUN", "0")
-        _set_zeus_env("ZEUS_READ_ONLY", "0")
-        pm.set_exec_level("sandbox_only")
-        print(f"\n{_color('🛡️  Modo sandbox ativado.', 32)}")
-        print(f"{_color('   Terminal do host bloqueado.', 90)}\n")
-        return
-
-    if subcmd in ("terminal", "host"):
-        _set_zeus_env("ZEUS_EXECUTION_PERMISSION", "allow")
-        _set_zeus_env("ZEUS_EXECUTION_MODE", "terminal")
-        _set_zeus_env("ZEUS_DRY_RUN", "0")
-        _set_zeus_env("ZEUS_READ_ONLY", "0")
-        pm.set_exec_level("allow")
-        print(f"\n{_color('⚡ Modo terminal ativado.', 33)}")
-        print(f"{_color('   run_terminal liberado com confirmação humana.', 90)}")
-        print(f"{_color('   Comandos de alto risco pedirão aprovação.', 31)}\n")
-        return
-
-    if subcmd == "auto":
-        _set_zeus_env("ZEUS_EXECUTION_PERMISSION", "allow")
-        _set_zeus_env("ZEUS_EXECUTION_MODE", "auto")
-        _set_zeus_env("ZEUS_DRY_RUN", "0")
-        _set_zeus_env("ZEUS_READ_ONLY", "0")
-        pm.set_exec_level("allow")
-        print(f"\n{_color('🚀 Modo automático ativado.', 35)}")
-        print(f"{_color('   run_terminal executa sem confirmação.', 90)}")
-        print(f"{_color('   Apenas o resultado é apresentado.', 90)}\n")
-        return
-
-    if subcmd == "dryrun":
-        _set_zeus_env("ZEUS_EXECUTION_PERMISSION", "allow")
-        _set_zeus_env("ZEUS_EXECUTION_MODE", "terminal")
-        _set_zeus_env("ZEUS_DRY_RUN", "1")
-        _set_zeus_env("ZEUS_READ_ONLY", "0")
-        print(f"\n{_color('👁️  Modo dry-run ativado.', 36)}")
-        print(f"{_color('   Ferramentas mutantes são apenas simuladas.', 90)}\n")
-        return
-
-    if subcmd == "readonly":
-        _set_zeus_env("ZEUS_EXECUTION_PERMISSION", "deny")
-        _set_zeus_env("ZEUS_EXECUTION_MODE", "terminal")
-        _set_zeus_env("ZEUS_DRY_RUN", "0")
-        _set_zeus_env("ZEUS_READ_ONLY", "1")
-        print(f"\n{_color('🔍 Modo somente leitura ativado.', 34)}")
-        print(f"{_color('   Apenas ferramentas de leitura estão liberadas.', 90)}\n")
-        return
-
-    if subcmd.startswith("file "):
-        level = subcmd[len("file "):].strip()
-        if level not in PermissionManager.FILE_LEVELS:
-            print(f"\n{_color('❌ Nível de arquivo inválido:', '1;31')} {level}")
-            print(f"{_color('Use:', 90)} /mode file read_only | project_only | unrestricted\n")
-            return
-        _set_zeus_env("ZEUS_FILE_PERMISSION", level)
-        print(f"\n{_color('📁  Permissão de arquivo:', 32)} {level}\n")
-        return
-
-    print(f"\n{_color('❌ Modo desconhecido:', '1;31')} {subcmd}")
-    print(f"{_color('Use:', 90)} /mode sandbox | terminal | auto | dryrun | readonly | file <nível>\n")
-
-
-def _set_zeus_env(key: str, value: str) -> None:
-    """Update an env variable both in the current process and in ~/.zeus/.env."""
-    os.environ[key] = value
-    zeus_home = Path(os.getenv("ZEUS_HOME", os.path.expanduser("~/.zeus")))
-    env_file = zeus_home / ".env"
-
-    lines: List[str] = []
-    if env_file.exists():
-        with env_file.open("r", encoding="utf-8") as f:
-            lines = f.readlines()
-
-    found = False
-    new_lines: List[str] = []
-    for line in lines:
-        stripped = line.strip()
-        if stripped.startswith(f"{key}=") or stripped.startswith(f"{key} =") or stripped.startswith(f"#{key}="):
-            new_lines.append(f"{key}={value}\n")
-            found = True
-        else:
-            new_lines.append(line)
-
-    if not found:
-        if new_lines and not new_lines[-1].endswith("\n"):
-            new_lines.append("\n")
-        new_lines.append(f"{key}={value}\n")
-
-    zeus_home.mkdir(parents=True, exist_ok=True)
-    with env_file.open("w", encoding="utf-8") as f:
-        f.writelines(new_lines)
-
-
-def _print_mode_menu(show_commands: bool = True) -> None:
-    """Print current execution mode and available options in a status card."""
-    from zeus.security.permissions import PermissionManager
-
-    pm = PermissionManager()
-    exec_mode = pm.exec_level
-    file_mode = pm.file_level
-    runtime_mode = pm.execution_mode
-    dry_run = pm.dry_run
-
-    term_width = _get_term_width()
-    title = " STATUS DO AGENTE "
-    line_length = max(10, term_width - len(title) - 6)
-    top = _color("╭──", 33) + _color(title, "1;33") + _color("─" * line_length, 33)
-    bottom = _color("╰" + "─" * (term_width - 3), 33)
-    sep = _color("│" + "─" * (term_width - 3), 33)
-
-    if exec_mode == "sandbox":
-        exec_label = f"{_color('●', 32)} {_color('SANDBOX', '1;32')}"
-        exec_detail = "Restringe comandos ao sandbox"
-    elif runtime_mode == "auto":
-        exec_label = f"{_color('●', 35)} {_color('AUTO', '1;35')}"
-        exec_detail = "Executa comandos automaticamente"
-    else:
-        exec_label = f"{_color('●', 33)} {_color('TERMINAL', '1;33')} ({_color('Manual', 37)})"
-        exec_detail = "Permite comandos com confirmação"
-
-    file_labels = {
-        "read_only": f"{_color('Apenas Leitura', 32)}",
-        "project_only": f"{_color('Projeto Apenas', 33)}",
-        "unrestricted": f"{_color('Total', 31)}",
-    }
-    file_label = file_labels.get(file_mode, file_mode)
-
-    dry_label = _color("ATIVADO", 36) if dry_run else _color("DESATIVADO", 90)
-
-    print()
-    print(top)
-    print(f"{_color('│', 33)}  {_color('Modo de Execução:', 90)}    {exec_label}")
-    print(f"{_color('│', 33)}  {_color('Permissão de Arquivos:', 90)} {file_label}")
-    print(f"{_color('│', 33)}  {_color('Simulação (Dry-run):', 90)} {dry_label}")
-    if show_commands:
-        print(sep)
-        print(f"{_color('│', 33)}  {_color('COMANDOS DE CONFIGURAÇÃO', '1;37')}")
-        print(f"{_color('│', 33)}  • {_color('/mode status', 33)}    - Mostra apenas o status atual")
-        print(f"{_color('│', 33)}  • {_color('/mode sandbox', 33)}   - {exec_detail if exec_mode == 'sandbox' else 'Restringe comandos ao sandbox'}")
-        print(f"{_color('│', 33)}  • {_color('/mode terminal', 33)}  - Permite comandos com confirmação")
-        print(f"{_color('│', 33)}  • {_color('/mode auto', 33)}      - Executa comandos automaticamente")
-        print(f"{_color('│', 33)}  • {_color('/mode dryrun', 33)}    - Apenas simula as ações")
-        print(f"{_color('│', 33)}  • {_color('/mode file <read_only|project_only|unrestricted>', 33)}")
-    print(bottom)
-    print()
-
-
-def _handle_config_command(text: str) -> None:
-    """Handle /config subcommands."""
-    from zeus.tools.config_tools import get_zeus_config, list_available_models, update_zeus_config
-
-    parts = text.split(maxsplit=2)
-    subcmd = parts[1].lower() if len(parts) > 1 else "show"
-
-    if subcmd in ("show", "get", "list"):
-        if subcmd == "get" and len(parts) >= 3:
-            key = parts[2].strip().upper()
-            value = os.getenv(key)
-            if value is None:
-                print(f"\n{_color('❌', '1;31')} {key}: não configurado\n")
-            else:
-                is_secret = any(
-                    token in key
-                    for token in ("TOKEN", "KEY", "SECRET", "PASSWORD", "API_KEY", "CREDENTIAL")
-                )
-                if is_secret:
-                    status = f"{_color('Configurado:', 32)} {'*' * max(4, len(value) - 4)}{value[-4:] if len(value) > 4 else ''}"
-                else:
-                    status = f"{_color('Configurado:', 32)} {value}"
-                print(f"\n{_color('🔑', 33)} {key}: {status}\n")
-        elif subcmd == "list" and len(parts) >= 3:
-            provider = parts[2].strip()
-            models = list_available_models(provider)
-            if "error" in models:
-                print(f"\n{_color('❌', '1;31')} {models['error']}\n")
-            else:
-                print(f"\n{_color('🤖 Modelos', 33)} {_color(provider, '1;33')}:")
-                for m in models.get("models", []):
-                    print(f"  • {m}")
-                print()
-        else:
-            _print_config_menu(get_zeus_config())
-
-    elif subcmd in ("set", "update"):
-        if len(parts) < 3:
-            print(f"\n{_color('❌ Uso:', '1;31')} /config set <KEY> <value>\n")
-            return
-        values = parts[2].split(maxsplit=1)
-        key = values[0].strip().upper()
-        is_secret = any(
-            token in key
-            for token in ("TOKEN", "KEY", "SECRET", "PASSWORD", "API_KEY", "CREDENTIAL")
-        )
-        if len(values) == 1:
-            if not is_secret:
-                print(f"\n{_color('❌ Uso:', '1;31')} /config set <KEY> <value>\n")
-                return
-            from zeus.cli.setup_commands import _get_input
-            value = _get_input(f"{key} (entrada mascarada)", secret=True)
-            if not value:
-                print(f"\n{_color('Configuração cancelada.', 33)}\n")
-                return
-        else:
-            if is_secret:
-                print(
-                    f"\n{_color('Por segurança:', 33)} use /config set {key} sem informar o valor; "
-                    "a próxima entrada será mascarada.\n"
-                )
-                return
-            value = values[1]
-
-        result = update_zeus_config(key, value)
-        if result.get("status") == "success":
-            print(f"\n{_color('✅ Configuração salva:', 32)} {result['key']} = {result['new_value_masked']}\n")
-            if result['key'] in ("ZEUS_PROVIDER", "ZEUS_MODEL"):
-                _load_env(override=True)
-                print(f"{_color('🔄 Sessão atual recarregada:', 33)} provider={os.getenv('ZEUS_PROVIDER')} model={os.getenv('ZEUS_MODEL')}\n")
-        else:
-            print(f"\n{_color('❌ Erro:', '1;31')} {result.get('error', 'unknown')}\n")
-
-    else:
-        _print_config_menu(get_zeus_config())
-
-
-def _handle_auth_command(text: str) -> None:
-    """Handle /auth subcommands for Google OAuth (authorization code flow)."""
-    from zeus.core.google_oauth_desktop import (
-        has_valid_credentials,
-        revoke_credentials,
-        start_authorization_flow,
-    )
-
-    parts = text.split()
-    subcmd = parts[1].lower() if len(parts) > 1 else "google"
-
-    if subcmd == "google":
-        provider = os.getenv("ZEUS_PROVIDER", "")
-        if provider != "google_auth":
-            aviso = "\n" + _color("Aviso:", "1;33")
-            print(
-                f"{aviso} ZEUS_PROVIDER='{provider}'. "
-                f"Para usar OAuth defina: {_color('/config set ZEUS_PROVIDER google_auth', 36)}\n"
-            )
-        print(f"\n{_color('Iniciando login do Google no navegador...', 33)}\n")
-        try:
-            credentials = start_authorization_flow()
-            masked = credentials['access_token'][-8:] if len(credentials['access_token']) > 8 else ""
-            ok = _color("Autenticado com Google:", "1;32")
-            print(f"\n{ok} token ...{masked}")
-            print(f"{_color('Provider google_auth pronto para uso via OAuth.', 90)}\n")
-        except Exception as e:
-            erro = _color("Erro na autenticacao Google:", "1;31")
-            print(f"\n{erro} {e}\n", file=sys.stderr)
-    elif subcmd in ("revoke", "logout", "clear"):
-        revoke_credentials()
-        print(f"\n{_color('🗑️  Credenciais Google revogadas.', 33)}\n")
-    elif subcmd in ("status", "check"):
-        if has_valid_credentials():
-            print(f"\n{_color('✅ Credenciais Google OAuth ativas.', 32)}\n")
-        else:
-            print(f"\n{_color('⚠️  Credenciais Google OAuth não encontradas ou expiradas.', 33)}")
-            print(f"{_color('Use:', 90)} /auth google\n")
-    else:
-        print(f"\n{_color('❌ Uso:', '1;31')} /auth google | /auth status | /auth revoke\n")
-
-
-
-def _print_plan(plan: Dict[str, Any]) -> None:
-    """Print a structured plan card."""
-    term_width = _get_term_width()
-    title = f" 📋 PLANO: {plan.get('title', 'Sem título')} "
-    line_length = max(10, term_width - len(title) - 6)
-    top = _color("╭──", 34) + _color(title, "1;34") + _color("─" * line_length, 34)
-    bottom = _color("╰" + "─" * (term_width - 3), 34)
-
-    print()
-    print(top)
-    for step in plan.get("steps", []):
-        num = step.get("step", "?")
-        action = step.get("action", "")
-        hint = step.get("tool_hint", "any")
-        print(f"{_color('│', 34)}  {num}. {action} {_color(f'[{hint}]', 90)}")
-    print(bottom)
-    print()
-
-
-def _print_step_result(step: Dict[str, Any], total: int) -> None:
-    """Print the result of a single plan step."""
-    term_width = _get_term_width()
-    title = f" ✅ Passo {step['step']}/{total}: {step['action'][:40]} "
-    inner_width = max(20, term_width - 6)
-
-    header_top = _color("╭──", 32) + _color(title, "1;32")
-    top_vis = _visible_width(header_top)
-    pad_len = max(2, term_width - top_vis - 1)
-    top = header_top + _color("─" * pad_len, 32)
-    bottom = _color("╰" + "─" * (term_width - 3), 32)
-
-    formatted_lines = _format_markdown_for_cli(str(step.get("result", "")), max_width=inner_width)
-
-    print()
-    print(top)
-    for line in formatted_lines:
-        print(f"{_color('│', 32)} {line}")
-    print(bottom)
-    print()
-
-
-
 def _ask_confirmation(session: PromptSession, text: str) -> bool:
     """Ask the user for y/n confirmation."""
     try:
@@ -1437,176 +345,6 @@ def _ask_confirmation(session: PromptSession, text: str) -> bool:
     except (EOFError, KeyboardInterrupt):
         return False
     return answer.strip().lower() in ("s", "sim", "y", "yes")
-
-
-def _print_user_closing() -> None:
-    """Close the user input box visually adapting to terminal width."""
-    term_width = _get_term_width()
-    print(_color("╰" + "─" * (term_width - 3), 33))
-
-
-def _print_tool_execution(name: Optional[str], args: Any) -> None:
-    """Print a notification when the agent executes a tool."""
-    args_str = json.dumps(args) if isinstance(args, (dict, list)) else str(args or {})
-    if len(args_str) > 65:
-        args_str = args_str[:62] + "..."
-    tool_name = name or "ferramenta"
-    print(f"  {_color('⚡ Executando:', 35)} {_color(tool_name, '1;35')}({_color(args_str, 90)})")
-
-
-def _print_live_output(chunk: str, stream: str) -> None:
-    """Print a chunk of live command output as it arrives.
-
-    stdout is printed in default color; stderr is tinted red so the user can
-    tell normal output from errors while a command runs.
-    """
-    if not chunk:
-        return
-    if stream == "stderr":
-        print(f"  {_color(chunk, 31)}")
-    else:
-        print(f"  {chunk}")
-
-
-def _print_tool_result(name: Optional[str], args: Any, result: Dict[str, Any]) -> None:
-    """Print detailed visual output for file creation (code) and file edits (line diffs)."""
-    if not isinstance(result, dict):
-        return
-
-    res_data = result.get("result") if isinstance(result.get("result"), dict) else result
-    if not isinstance(res_data, dict) or res_data.get("status") != "success":
-        return
-
-    term_width = _get_term_width()
-    inner_width = max(20, term_width - 8)
-
-    # 1. File Created Case
-    if res_data.get("action") == "created" or (name in ("write_file", "create_file") and "content" in res_data and "old_content" not in res_data and "diff" not in res_data):
-        file_path = res_data.get("path") or (args.get("path") if isinstance(args, dict) else "arquivo")
-        content = res_data.get("content") or (args.get("content") if isinstance(args, dict) else "")
-
-        title = f" 📄 ARQUIVO CRIADO: {file_path} "
-        line_length = max(10, term_width - len(title) - 6)
-        top = _color("╭──", 32) + _color(title, "1;32") + _color("─" * line_length, 32)
-        bottom = _color("╰" + "─" * (term_width - 3), 32)
-
-        print()
-        print(top)
-        lines = content.splitlines()
-        max_preview = 60
-        for idx, line_text in enumerate(lines[:max_preview], 1):
-            num_str = f"{idx:3d} │ "
-            truncated_line = line_text[:inner_width - len(num_str)]
-            print(f"{_color('│', 32)} {_color(num_str, 90)}{_color(truncated_line, 37)}")
-        if len(lines) > max_preview:
-            remaining_lines = len(lines) - max_preview
-            print(f"{_color('│', 32)} {_color(f'  ... ({remaining_lines} linhas ocultas)', 90)}")
-        print(bottom)
-        print()
-        return
-
-    # 2. File Modified Case (Diff Display)
-    if res_data.get("action") == "modified" or "diff" in res_data or (name in ("write_file", "replace_file_content", "modify_file") and "old_content" in res_data):
-        file_path = res_data.get("path") or (args.get("path") if isinstance(args, dict) else "arquivo")
-        diff_text = res_data.get("diff", "")
-
-        if not diff_text and "old_content" in res_data and "content" in res_data:
-            import difflib
-            old_lines = res_data["old_content"].splitlines(keepends=True)
-            new_lines = res_data["content"].splitlines(keepends=True)
-            diff_text = "".join(difflib.unified_diff(old_lines, new_lines, fromfile="antigo", tofile="novo"))
-
-        if not diff_text:
-            return
-
-        title = f" 📝 ARQUIVO ALTERADO: {file_path} "
-        line_length = max(10, term_width - len(title) - 6)
-        top = _color("╭──", 33) + _color(title, "1;33") + _color("─" * line_length, 33)
-        bottom = _color("╰" + "─" * (term_width - 3), 33)
-
-        print()
-        print(top)
-        diff_lines = diff_text.splitlines()
-        for diff_line in diff_lines:
-            if diff_line.startswith("---") or diff_line.startswith("+++"):
-                continue
-            if diff_line.startswith("@@"):
-                print(f"{_color('│', 33)} {_color(diff_line[:inner_width], '1;33')}")
-            elif diff_line.startswith("-"):
-                # Linha Antiga (Vermelho)
-                line_content = diff_line[1:]
-                print(f"{_color('│', 33)} {_color('🔴 - ', '1;31')}{_color(line_content[:inner_width - 5], 31)}")
-            elif diff_line.startswith("+"):
-                # Nova Linha Alterada (Verde)
-                line_content = diff_line[1:]
-                print(f"{_color('│', 33)} {_color('🟢 + ', '1;32')}{_color(line_content[:inner_width - 5], 32)}")
-            else:
-                # Linha Inalterada (Contexto)
-                line_content = diff_line[1:] if diff_line.startswith(" ") else diff_line
-                print(f"{_color('│', 33)}    {_color(line_content[:inner_width - 4], 90)}")
-        print(bottom)
-        print()
-        return
-
-
-def _print_prompt_header(logger, metrics) -> None:
-    term_width = _get_term_width()
-    provider = os.getenv("ZEUS_PROVIDER", "openrouter")
-    model = os.getenv("ZEUS_MODEL", "unknown")
-    snap = metrics.snapshot()
-    in_tokens = _format_tokens(snap.get("llm_input_tokens", 0))
-    out_tokens = _format_tokens(snap.get("llm_output_tokens", 0))
-    duration = _format_duration(time.time() - snap.get("started_at", time.time()))
-    context_bar = _context_bar(logger.session_id)
-
-    from zeus.mcp.manager import MCPManager
-    mcp_mgr = MCPManager.get_instance()
-    connected = [name for name, c in mcp_mgr.clients.items() if c.is_connected]
-
-    # Current execution mode label.
-    from zeus.security.permissions import get_global_permission_manager
-    pm = get_global_permission_manager()
-    exec_level = pm.exec_level
-    runtime_mode = pm.execution_mode
-    if pm.read_only:
-        mode_label = "readonly"
-        mode_color = "1;34"
-    elif exec_level == "deny":
-        mode_label = "deny"
-        mode_color = "1;31"
-    elif exec_level == "sandbox_only":
-        mode_label = "sandbox"
-        mode_color = "1;32"
-    elif runtime_mode == "auto":
-        mode_label = "auto"
-        mode_color = "1;35"
-    else:
-        mode_label = "terminal"
-        mode_color = "1;33"
-    if pm.dry_run and mode_label in ("terminal", "auto"):
-        mode_label += "+dryrun"
-
-    llm_conn = f"🌐 API:{provider}"
-    tools_conn = f"🔌 MCP:{','.join(connected)}" if connected else "⚡ Tools:Native"
-
-    # Build the header with the mode highlighted in its own color while the
-    # rest of the line stays yellow. Avoid nested _color() because the inner
-    # reset (\033[0m) turns off the outer color.
-    rest = (
-        f" {model} ({llm_conn}) | {tools_conn} "
-        f"| in:{in_tokens} out:{out_tokens} | {duration} | {context_bar} "
-    )
-    title = (
-        f"\033[1;33m 👤 VOCÊ | "
-        f"\033[{mode_color}mMODO:{mode_label}"
-        f"\033[1;33m |{rest}"
-    )
-    remaining = max(5, term_width - _visible_width(title) - 6)
-
-    top = _color("╭──", 33) + title + _color("─" * remaining, 33)
-    print(f"\n{top}")
-
-
 
 
 active_session: Optional[PromptSession] = None
@@ -1649,8 +387,6 @@ def _ask_file_permission_prompt(msg: str) -> Any:
     if choice in ("y", "yes", "s", "sim"):
         return "once"
     return "deny"
-
-
 
 
 def main() -> int:
@@ -1756,9 +492,7 @@ def main() -> int:
     except Exception:
         pass
 
-
     while True:
-
         _print_prompt_header(logger, get_metrics(logger.session_id))
         prompt_arrow = ANSI(_color("│ ❯ ", "1;33"))
         try:
@@ -1770,14 +504,12 @@ def main() -> int:
             print(f"\n{_color('👋 Até mais!', 36)}\n")
             break
 
-
         text = user_input.strip()
         if not text:
             continue
         if text == "/exit":
             print(f"\n{_color('👋 Até mais!', 36)}\n")
             break
-
 
         if text == "/new":
             logger = get_logger(new_session=True)
@@ -1826,7 +558,6 @@ def main() -> int:
         if text == "/skills":
             _print_skills_menu(active_skill)
             continue
-
 
         if text.startswith("/skills "):
             skill_name = text[len("/skills "):].strip()

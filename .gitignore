@@ -12,6 +12,10 @@ __pycache__/
 .ruff_cache/
 dist/
 build/
+target/
+**/target/
+node_modules/
+**/node_modules/
 sandbox/rootfs/
 sandbox/sandbox
 gateway/whatsapp/baileys/node_modules/
