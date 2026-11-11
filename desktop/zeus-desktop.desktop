@@ -2,7 +2,9 @@
 Name=Zeus Desktop
 Comment=Interface gráfica nativa de alto desempenho para o Zeus Agent
 Exec=zeus-desktop
+Icon=zeus-desktop
 Terminal=false
 Type=Application
 Categories=Development;Utility;
 Keywords=AI;Agent;Coding;Zeus;
+StartupWMClass=zeus-desktop

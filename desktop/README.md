@@ -30,6 +30,20 @@ cd desktop
 cargo run
 ```
 
+### Instalação no Sistema (Launcher, Atalho de Menu e Ícone)
+
+O instalador garante automaticamente que a **base Python do Zeus Core** (`.venv` + pacote `zeus`) esteja instalada via `scripts/install.sh`, compila o `zeus-desktop` e registra o launcher em `~/.local/bin/zeus-desktop` com ícone e atalho no menu de aplicativos (`~/.local/share/applications/zeus-desktop.desktop`):
+
+```bash
+./scripts/install-desktop.sh
+```
+
+Opções úteis:
+- `./scripts/install-desktop.sh --no-build` — usa o binário já compilado em `desktop/target/release/zeus-desktop`
+- `./scripts/install-desktop.sh --with-core` — força a reinstalação da base Zeus Core (`scripts/install.sh`)
+- `./scripts/install-desktop.sh --skip-core` — pula a verificação/instalação da base Zeus Core
+- `./scripts/uninstall-desktop.sh` — remove binário, launcher, atalho e ícone (use `--state` para apagar também `~/.zeus/desktop_state.json`)
+
 ### Compilar para Produção (Release)
 
 Gera um binário único, compacto e otimizado (~15MB) em `target/release/zeus-desktop`:
