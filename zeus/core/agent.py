@@ -1,6 +1,7 @@
 """Core agent loop: ReAct pattern (reason -> act -> observe)."""
 
 import json
+import os
 import re
 import time
 import traceback
@@ -8,7 +9,7 @@ from typing import Any, Dict, List, Optional
 
 from zeus.config.settings import load_config
 from zeus.core.registry import REGISTRY
-from zeus.core.router import chat
+from zeus.core.router import chat, normalize_reasoning_effort
 from zeus.core.schemas import AgentDecision, PlanOutput, ToolCallDecision
 from zeus.memory.learning import LearningStore
 from zeus.memory.reasoning import ReasoningMemory
@@ -379,6 +380,16 @@ def run_agent(
     learning_context = learning_store.format_context(user_input)
 
     system_prompt = SYSTEM_PROMPT
+    effort = normalize_reasoning_effort(os.getenv("ZEUS_REASONING_EFFORT"))
+    if effort:
+        effort_guidance = {
+            "minimal": "Reasoning effort: MINIMAL. Keep internal reasoning brief and act directly with minimal steps.",
+            "low": "Reasoning effort: LOW. Prefer concise reasoning and straightforward solutions.",
+            "medium": "Reasoning effort: MEDIUM. Balance clarity, verification, and conciseness.",
+            "high": "Reasoning effort: HIGH. Think thoroughly, verify edge cases and assumptions carefully before finalizing.",
+        }.get(effort)
+        if effort_guidance:
+            system_prompt += f"\n\n## Reasoning Effort\n{effort_guidance}\n"
     if reasoning_context:
         system_prompt += f"\n\n{reasoning_context}\n"
     if learning_context:

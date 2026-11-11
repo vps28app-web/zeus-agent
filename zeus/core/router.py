@@ -60,6 +60,26 @@ PROVIDERS = {
 }
 
 
+def normalize_reasoning_effort(value: Optional[str]) -> Optional[str]:
+    """Normalize ZEUS_REASONING_EFFORT values (supporting EN and PT-BR labels)."""
+    if not value:
+        return None
+    cleaned = value.strip().lower()
+    mapping = {
+        "minimal": "minimal",
+        "mínimo": "minimal",
+        "minimo": "minimal",
+        "low": "low",
+        "baixo": "low",
+        "medium": "medium",
+        "médio": "medium",
+        "medio": "medium",
+        "high": "high",
+        "alto": "high",
+    }
+    return mapping.get(cleaned)
+
+
 def chat(
     messages: List[Dict[str, str]],
     tools: List[Dict[str, Any]],
@@ -243,11 +263,24 @@ def _normalize_response(response: Dict[str, Any], provider: str) -> Dict[str, An
 def _stream_response(response, provider: str, callback=None) -> Dict[str, Any]:
     """Parse streaming response and accumulate into a normalized dict.
 
-    Handles SSE (OpenAI/OpenRouter), NDJSON (Ollama), and Anthropic SSE formats.
+    Handles SSE (OpenAI/OpenRouter), NDJSON (Ollama), Anthropic SSE formats,
+    and non-streaming dict responses (e.g. Google Gemini providers).
     """
+    if isinstance(response, dict):
+        normalized = _normalize_response(response, provider)
+        if callback:
+            msg_content = (
+                normalized.get("choices", [{}])[0]
+                .get("message", {})
+                .get("content")
+            )
+            if msg_content:
+                callback(msg_content)
+        return normalized
 
     content_parts = []
     tool_calls: Dict[int, Dict[str, Any]] = {}
+    captured_usage: Optional[Dict[str, Any]] = None
 
     for line in response.iter_lines():
         if not line:
@@ -261,6 +294,11 @@ def _stream_response(response, provider: str, callback=None) -> Dict[str, Any]:
             except json.JSONDecodeError:
                 continue
             if chunk.get("done"):
+                if "prompt_eval_count" in chunk or "eval_count" in chunk:
+                    captured_usage = {
+                        "prompt_tokens": chunk.get("prompt_eval_count", 0),
+                        "completion_tokens": chunk.get("eval_count", 0),
+                    }
                 break
             delta_content = chunk.get("message", {}).get("content")
             if delta_content:
@@ -278,6 +316,14 @@ def _stream_response(response, provider: str, callback=None) -> Dict[str, Any]:
             chunk = json.loads(decoded)
         except json.JSONDecodeError:
             continue
+
+        if isinstance(chunk, dict) and chunk.get("usage"):
+            usage_obj = chunk["usage"]
+            if isinstance(usage_obj, dict):
+                captured_usage = {
+                    "prompt_tokens": usage_obj.get("prompt_tokens", usage_obj.get("input_tokens", 0)),
+                    "completion_tokens": usage_obj.get("completion_tokens", usage_obj.get("output_tokens", 0)),
+                }
 
         if provider == "anthropic":
             delta = chunk.get("delta", {})
@@ -312,7 +358,7 @@ def _stream_response(response, provider: str, callback=None) -> Dict[str, Any]:
     final_content = "".join(content_parts) if content_parts else None
     final_tool_calls = list(tool_calls.values()) if tool_calls else None
 
-    return {
+    result: Dict[str, Any] = {
         "choices": [
             {
                 "message": {
@@ -323,3 +369,6 @@ def _stream_response(response, provider: str, callback=None) -> Dict[str, Any]:
             }
         ]
     }
+    if captured_usage:
+        result["usage"] = captured_usage
+    return result

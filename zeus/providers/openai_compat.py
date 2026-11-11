@@ -94,6 +94,17 @@ def openai_chat(
     if not api_key:
         raise RuntimeError("OPENAI_API_KEY not set")
 
+    payload: Dict[str, Any] = {
+        "model": model,
+        "messages": messages,
+        "tools": tools if tools else None,
+        "stream": stream,
+    }
+    effort = os.getenv("ZEUS_REASONING_EFFORT", "").strip().lower()
+    effort_map = {"minimal": "low", "mínimo": "low", "minimo": "low", "low": "low", "baixo": "low", "medium": "medium", "médio": "medium", "medio": "medium", "high": "high", "alto": "high"}
+    if effort in effort_map and model.startswith(("o1", "o3", "o4", "gpt-5")):
+        payload["reasoning_effort"] = effort_map[effort]
+
     def _call() -> Any:
         response = requests.post(
             "https://api.openai.com/v1/chat/completions",
@@ -101,12 +112,7 @@ def openai_chat(
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
             },
-            json={
-                "model": model,
-                "messages": messages,
-                "tools": tools if tools else None,
-                "stream": stream,
-            },
+            json=payload,
             timeout=120,
             stream=stream,
         )

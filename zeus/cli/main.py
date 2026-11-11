@@ -398,13 +398,28 @@ def main() -> int:
     parser.add_argument("--session", help="Session ID for logging")
     parser.add_argument("--summary", action="store_true", help="Print session summary after query")
     parser.add_argument("--team", action="store_true", help="Use multi-agent team orchestration")
+    parser.add_argument("--desktop-json", action="store_true", help="Run structured JSONL bridge for Zeus Desktop")
+    parser.add_argument("--desktop-catalog", action="store_true", help="Output dynamic desktop catalog JSON and exit")
     parser.add_argument("command", nargs="?", choices=["setup", "setup-model", "gateway"], help="Top-level commands (setup, setup-model, gateway)")
     parser.add_argument("gateway_args", nargs=argparse.REMAINDER, help="Gateway subcommand arguments")
     args = parser.parse_args()
 
     global _COLOR_ENABLED
-    if args.no_color:
+    if args.no_color or args.desktop_json:
         _COLOR_ENABLED = False
+
+    if args.desktop_catalog:
+        from zeus.cli.desktop_bridge import build_desktop_catalog
+        print(json.dumps(build_desktop_catalog(), ensure_ascii=False, default=str))
+        return 0
+
+    if args.desktop_json:
+        from zeus.cli.desktop_bridge import run_desktop_bridge
+        return run_desktop_bridge(
+            query=args.query,
+            session_id=args.session,
+            use_team=args.team,
+        )
 
     if args.command == "gateway" or args.gateway_args:
         os.environ.pop("ZEUS_LOCAL_CLI", None)
