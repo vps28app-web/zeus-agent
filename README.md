@@ -12,8 +12,11 @@ zeus/
 ├── db/             # SQLite: memories, sessions, turns, metrics, scheduled_tasks
 ├── observability/  # métricas, custo, tracing, reporter
 ├── scheduler/      # thread polling para tarefas cron
-├── gateway/        # Telegram, WhatsApp, Discord
-└── cli/            # interface interativa
+├── gateway/        # Telegram, WhatsApp, Discord e Instagram Messaging
+└── cli/            # interface interativa e bridge JSONL (--desktop-json)
+
+desktop/            # cliente gráfico nativo em Rust (eframe/egui)
+scripts/            # instaladores locais, Zeus Desktop e serviços systemd
 ```
 
 ## Instalação
@@ -28,6 +31,24 @@ zeus setup
 ```
 
 O instalador cria `.venv`, instala o pacote e os comandos `zeus`/`zeus-gateway`, cria a configuração privada em `~/.zeus/.env` e gera o token da sandbox. Em Linux amd64, se Go estiver disponível, também compila a sandbox opcional. Detalhes e alternativas: [`docs/INSTALACAO.md`](docs/INSTALACAO.md).
+
+### Zeus Desktop (Rust Nativo)
+
+Para instalar o cliente gráfico nativo ([`desktop/README.md`](desktop/README.md)) sem `sudo` (requer `cargo`/Rust para compilar ou `--no-build` se o binário release já existir):
+
+```bash
+./scripts/install-desktop.sh
+# ou via npm:
+npm run install:desktop
+```
+
+O instalador verifica automaticamente a base Python do Zeus Core (`.venv`, comandos e `~/.zeus/.env`), executando `./scripts/install.sh` quando necessário, compila o binário release e registra o comando `~/.local/bin/zeus-desktop`, o atalho `.desktop` e o ícone SVG no menu de aplicativos.
+
+Opções úteis:
+- `./scripts/install-desktop.sh --no-build` — usa o binário em `desktop/target/release/zeus-desktop` sem recompilar
+- `./scripts/install-desktop.sh --with-core` — força a reinstalação/atualização do Zeus Core antes do Desktop
+- `./scripts/install-desktop.sh --skip-core` — instala apenas o binário Desktop sem validar o Zeus Core
+- `./scripts/uninstall-desktop.sh` — remove o cliente Desktop (adicione `--state` para apagar também `~/.zeus/desktop-state.json`)
 
 ### Comando `zeus` global via npm
 
@@ -142,6 +163,17 @@ No CLI local, você pode trocar de projeto pedindo ao Zeus, por exemplo: “mude
 /team       # equipe multi-agente
 ```
 
+## Zeus Desktop
+
+O diretório `desktop/` contém o cliente gráfico nativo do Zeus escrito em Rust (`eframe`/`egui`), conectado ao harness Python via JSONL (`zeus --desktop-json` e `zeus --desktop-catalog`):
+
+- Chat em streaming com renderização Markdown e blocos recolhíveis de *reasoning* e chamadas de ferramenta (*tool calls*)
+- Aprovações interativas *Human-in-the-Loop* para execução de ferramentas sensíveis
+- Seleção dinâmica de provedor, modelo, esforço de raciocínio (`ZEUS_REASONING_EFFORT`) e gerenciamento de chaves em `~/.zeus/.env` e servidores MCP
+- Painel lateral com histórico de sessões, métricas de observabilidade, tarefas agendadas e memória persistente
+
+Após instalar, execute `zeus-desktop` no terminal ou abra **Zeus Desktop** pelo menu de aplicativos. Veja [`desktop/README.md`](desktop/README.md) para detalhes de arquitetura e build manual.
+
 ## Ferramentas
 
 50 ferramentas em 8 categorias: sistema, arquivos, web, memória, aprendizado, git, scheduler e configuração. Veja `docs/TOOLS.md`.
@@ -180,6 +212,7 @@ Para instalação persistente, use o instalador systemd documentado em [`docs/IN
 - `docs/MCP.md` — Model Context Protocol
 - `docs/CONFIG.md` — gerenciamento de configurações
 - `docs/LEARNING.md` — aprendizado contínuo
+- [`desktop/README.md`](desktop/README.md) — Zeus Desktop (Rust nativo), bridge JSONL e instalador
 
 ## Autor
 
