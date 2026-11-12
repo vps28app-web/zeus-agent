@@ -1,14 +1,17 @@
 # Zeus
 
-Agent harness minimalista escrito em Python. Agente = modelo + harness. Zeus é o harness: loop ReAct, registro de ferramentas, roteamento de modelos, memória persistente, sandbox isolada, observabilidade e execução em background.
+Agent harness minimalista escrito em Python. **Agente = modelo + harness.**  
+O Zeus fornece o harness completo: loop ReAct, registro de ferramentas, roteamento de modelos, memória persistente, sandbox isolada, observabilidade e execução em background.
 
-O projeto conta com duas interfaces principais sobre o mesmo core:
-- **Zeus CLI**: interface interativa no terminal, modo single-query, gateways e automações.
-- **Zeus Desktop**: cliente gráfico nativo em Rust (`eframe`/`egui`) integrado ao core via JSONL.
+O projeto oferece duas interfaces sobre o mesmo core:
+- **Zeus CLI** — interface interativa no terminal, modo *single-query*, gateways e automações.
+- **Zeus Desktop** — cliente gráfico nativo em Rust (`eframe`/`egui`) integrado ao core Python via bridge JSONL.
+
+---
 
 ## Estrutura
 
-```
+```text
 zeus/
 ├── core/           # agent loop, registry, router, multi-agent team
 ├── tools/          # ferramentas nativas
@@ -21,11 +24,14 @@ zeus/
 
 desktop/            # cliente gráfico nativo em Rust (eframe/egui)
 scripts/            # instaladores locais, Zeus Desktop e serviços systemd
+docs/               # documentação detalhada do projeto
 ```
+
+---
 
 ## Instalação
 
-### Zeus CLI (Core)
+### 1. Zeus CLI (Core)
 
 Em Linux/macOS com Python 3.8+ e Git, clone o repositório e execute o instalador sem `sudo`:
 
@@ -36,19 +42,19 @@ cd zeus-agent
 zeus setup
 ```
 
-O instalador cria `.venv`, instala o pacote e os comandos `zeus`/`zeus-gateway`, cria a configuração privada em `~/.zeus/.env` e gera o token da sandbox. Em Linux amd64, se Go estiver disponível, também compila a sandbox opcional. Detalhes e alternativas: [`docs/INSTALACAO.md`](docs/INSTALACAO.md).
+O instalador cria `.venv`, instala o pacote e os comandos `zeus` e `zeus-gateway`, cria a configuração privada em `~/.zeus/.env` e gera o token da sandbox. Em Linux amd64, se Go estiver disponível, também compila a sandbox opcional. Detalhes e alternativas em [`docs/INSTALACAO.md`](docs/INSTALACAO.md).
 
-### Zeus Desktop (Rust Nativo)
+### 2. Zeus Desktop (Rust Nativo)
 
-Para instalar o cliente gráfico nativo ([`desktop/README.md`](desktop/README.md)) sem `sudo` (requer `cargo`/Rust para compilar ou `--no-build` se o binário release já existir):
+Para instalar o cliente gráfico nativo ([`desktop/README.md`](desktop/README.md)) sem `sudo` (requer `cargo`/Rust para compilar, ou `--no-build` se o binário release já existir):
 
 ```bash
 ./scripts/install-desktop.sh
-# ou via npm:
+# ou via npm (na raiz do repositório):
 npm run install:desktop
 ```
 
-O instalador verifica automaticamente a base Python do Zeus Core (`.venv`, comandos e `~/.zeus/.env`), executando `./scripts/install.sh` quando necessário, compila o binário release e registra o comando `~/.local/bin/zeus-desktop`, o atalho `.desktop` e o ícone SVG no menu de aplicativos.
+O instalador verifica automaticamente a base Python do Zeus Core (`.venv`, comandos e `~/.zeus/.env`), executando `./scripts/install.sh` quando necessário, compila o binário release e registra `~/.local/bin/zeus-desktop`, o atalho `.desktop` e o ícone SVG no menu de aplicativos.
 
 Opções úteis:
 - `./scripts/install-desktop.sh --no-build` — usa o binário em `desktop/target/release/zeus-desktop` sem recompilar
@@ -56,53 +62,94 @@ Opções úteis:
 - `./scripts/install-desktop.sh --skip-core` — instala apenas o binário Desktop sem validar o Zeus Core
 - `./scripts/uninstall-desktop.sh` — remove o cliente Desktop (adicione `--state` para apagar também `~/.zeus/desktop-state.json`)
 
-### Comando `zeus` global via npm
+### 3. Comando global e instalador via npm
 
-Depois de instalar (por qualquer fluxo), você pode expor `zeus` e `zeus-gateway` como comandos globais que funcionam em qualquer diretório:
+#### Expor `zeus` e `zeus-gateway` globalmente
+
+Depois de instalar o core (por qualquer fluxo), exponha os comandos para uso em qualquer diretório (requer Node.js 18+):
 
 ```bash
 npm install -g git+https://github.com/vps28app-web/zeus-agent.git
-# ou, dentro de um checkout: npm install -g .
-zeus --version   # em qualquer diretório
+# ou, dentro de um checkout:
+npm install -g .
+
+zeus --version
 ```
 
-O launcher não instala o Zeus: ele localiza a instalação existente (`ZEUS_INSTALL_DIR`, checkout acima do diretório atual, registro `~/.zeus/install-dir` ou `~/.local/share/zeus-agent`) e a executa preservando o diretório atual como workspace. O `.env` da raiz do checkout continua carregando mesmo executando fora dele. Requer Node 18+; funciona em qualquer plataforma com Node, sem as restrições de Linux amd64 do fluxo completo abaixo.
+O launcher localiza a instalação existente (`ZEUS_INSTALL_DIR`, checkout acima do diretório atual, registro `~/.zeus/install-dir` ou `~/.local/share/zeus-agent`) e executa o Zeus preservando o diretório atual como workspace.
 
-Em Debian/Ubuntu amd64 com Go 1.20+ disponível nos repositórios apt, também há um fluxo npm que prepara as dependências e instala/inicia a sandbox systemd em uma execução. Direto do GitHub, sem clonar nada:
+#### Instalação completa em Debian/Ubuntu amd64 via `npx`
+
+Em Debian/Ubuntu amd64 com Go 1.20+ disponível nos repositórios `apt`, é possível preparar as dependências e instalar/iniciar a sandbox `systemd` em uma execução, sem clonar manualmente:
 
 ```bash
 npx --yes --package=git+https://github.com/vps28app-web/zeus-agent.git zeus-install
 ```
 
-Esse comando funciona em qualquer diretório. Se você já tem um checkout e está na raiz dele, o equivalente é:
+Dentro de um checkout existente, o equivalente é `npm run install:zeus` (exige `package.json` no diretório atual). O instalador solicita confirmação antes de instalar pacotes de sistema e pedir autorização administrativa para o serviço da sandbox.
+
+Para remover: use `zeus-uninstall` (de qualquer diretório) ou `./scripts/uninstall.sh` no checkout, e `npm uninstall -g zeus-agent-installer` para remover os comandos globais. Mais detalhes em [`docs/INSTALACAO.md`](docs/INSTALACAO.md).
+
+---
+
+## Uso
+
+### Zeus CLI
 
 ```bash
-npm run install:zeus
+# Configuração inicial interativa (provedor/modelo + integrações)
+zeus setup
+
+# Modo interativo
+zeus
+# ou: python -m zeus.cli
+
+# Query única
+zeus -q "liste arquivos do diretório atual"
 ```
 
-Atenção: `npm run` exige o `package.json` no diretório atual — fora do checkout ele falha com `ENOENT`; use o `npx` acima nesse caso.
+Comandos interativos úteis no CLI:
 
-Requer Node.js 18+, npm e Git. O instalador pede confirmação antes de instalar pacotes de sistema e solicitar autorização administrativa para o serviço da sandbox.
+```text
+/help       # menu de comandos
+/skills     # selecionar persona
+/config     # ver/alterar configurações
+/models     # trocar modelo/provedor
+/mcp        # gerenciar servidores MCP
+/learn      # aprendizados passados
+/plan       # criar e executar plano
+/team       # equipe multi-agente
+```
 
-Para remover, use `zeus-uninstall` (publicado pelo pacote npm, funciona de qualquer diretório) ou `./scripts/uninstall.sh` num checkout — remove launchers e registro; flags opcionais para estado, clone npm e `.venv` — e `npm uninstall -g zeus-agent-installer` para tirar os comandos globais. Detalhes: [`docs/INSTALACAO.md`](docs/INSTALACAO.md).
+No CLI local, você também pode trocar de projeto em tempo de execução pedindo ao Zeus (ex.: *"mude a pasta de trabalho para /caminho/do/projeto"*), ajustando a fronteira do modo `project_only` até encerrar o processo sem alterar arquivos de configuração.
+
+### Zeus Desktop
+
+Após instalar, execute `zeus-desktop` no terminal ou abra **Zeus Desktop** pelo menu de aplicativos.
+
+O cliente em `desktop/` comunica-se com o harness Python via JSONL (`zeus --desktop-json` e `zeus --desktop-catalog`) e oferece:
+- Chat em streaming com renderização Markdown e blocos recolhíveis de *reasoning* e *tool calls*
+- Aprovações interativas *Human-in-the-Loop* para ferramentas sensíveis
+- Seleção dinâmica de provedor, modelo e esforço de raciocínio (`ZEUS_REASONING_EFFORT`)
+- Gerenciamento visual de chaves em `~/.zeus/.env` e servidores MCP
+- Painel lateral com histórico de sessões, métricas de observabilidade, tarefas agendadas e memória persistente
+
+Veja [`desktop/README.md`](desktop/README.md) para detalhes de arquitetura, atalhos e build manual.
+
+---
 
 ## Configuração
 
-A instalação recomendada cria e usa `~/.zeus/.env`; também é possível definir outro `ZEUS_HOME` absoluto. Para instalações antigas, o Zeus ainda pode ler um `.env` na raiz do projeto. Gerencie as variáveis via CLI:
+A instalação recomendada cria e utiliza `~/.zeus/.env` (ou outro diretório definido em `ZEUS_HOME`). Instalações antigas também podem ler um `.env` na raiz do projeto. Você pode editar as configurações pela interface do **Zeus Desktop** ou via CLI:
 
 ```bash
-# Ver configuração atual
 /config
-
-# Definir provider/modelo em tempo real
 /config set ZEUS_PROVIDER openrouter
 /config set ZEUS_MODEL openrouter/auto
-
-# Listar modelos de um provider
 /config list-models google
 ```
 
-Exemplo de `.env`:
+Exemplo de `~/.zeus/.env`:
 
 ```bash
 # Provedor
@@ -128,10 +175,9 @@ ZEUS_SANDBOX_URL=http://127.0.0.1:9876
 
 ## Model Context Protocol (MCP)
 
-O Zeus pode se conectar a servidores MCP externos para expandir suas ferramentas:
+O Zeus pode se conectar a servidores MCP externos para expandir suas ferramentas (via CLI ou pelo painel de MCP do **Zeus Desktop**):
 
 ```bash
-# No CLI interativo
 /mcp add gemini
 /mcp add filesystem
 /mcp add memory
@@ -141,54 +187,13 @@ O Zeus pode se conectar a servidores MCP externos para expandir suas ferramentas
 
 Ferramentas MCP são registradas automaticamente no agente com o prefixo `mcp_<servidor>_`.
 
-## Uso rápido
+---
 
-```bash
-# Configuração inicial interativa (provedor/modelo + integrações escolhidas)
-zeus setup
+## Recursos do Core
 
-# Modo interativo
-python -m zeus.cli
-
-# Query única
-python -m zeus.cli -q "liste arquivos do diretório atual"
-```
-
-No CLI local, você pode trocar de projeto pedindo ao Zeus, por exemplo: “mude a pasta de trabalho para /caminho/do/projeto”. A mudança vale até encerrar o processo e também ajusta a fronteira de acesso do modo `project_only`; não altera arquivos de configuração.
-
-```bash
-# Comandos interativos úteis
-/help       # menu de comandos
-/skills     # selecionar persona
-/config     # ver configurações
-/config set ZEUS_PROVIDER openai
-/mcp add gemini
-/models     # trocar modelo/provedor
-/learn      # aprendizados passados
-/plan       # criar e executar plano
-/team       # equipe multi-agente
-```
-
-## Zeus Desktop
-
-O diretório `desktop/` contém o cliente gráfico nativo do Zeus escrito em Rust (`eframe`/`egui`), conectado ao harness Python via JSONL (`zeus --desktop-json` e `zeus --desktop-catalog`):
-
-- Chat em streaming com renderização Markdown e blocos recolhíveis de *reasoning* e chamadas de ferramenta (*tool calls*)
-- Aprovações interativas *Human-in-the-Loop* para execução de ferramentas sensíveis
-- Seleção dinâmica de provedor, modelo, esforço de raciocínio (`ZEUS_REASONING_EFFORT`) e gerenciamento de chaves em `~/.zeus/.env` e servidores MCP
-- Painel lateral com histórico de sessões, métricas de observabilidade, tarefas agendadas e memória persistente
-
-Após instalar, execute `zeus-desktop` no terminal ou abra **Zeus Desktop** pelo menu de aplicativos. Veja [`desktop/README.md`](desktop/README.md) para detalhes de arquitetura e build manual.
-
-## Ferramentas
-
-50 ferramentas em 8 categorias: sistema, arquivos, web, memória, aprendizado, git, scheduler e configuração. Veja `docs/TOOLS.md`.
-
-## Gateways
-
-Telegram, WhatsApp, Discord e Instagram Messaging (conta Profissional via API oficial da Meta). Veja `docs/GATEWAY.md`.
-
-## Tarefas agendadas
+- **Ferramentas**: 50 ferramentas nativas em 8 categorias (sistema, arquivos, web, memória, aprendizado, git, scheduler e configuração). Veja [`docs/TOOLS.md`](docs/TOOLS.md).
+- **Gateways**: Telegram, WhatsApp, Discord e Instagram Messaging (conta Profissional via API oficial da Meta). Veja [`docs/GATEWAY.md`](docs/GATEWAY.md).
+- **Tarefas agendadas**:
 
 ```python
 from zeus.tools.scheduler import schedule_task
@@ -200,27 +205,28 @@ schedule_task(
 )
 ```
 
-## Sandbox Go
+### Sandbox Go
 
-A sandbox requer Linux x86_64, Go 1.20+, root e cgroup v2 com `cpu`, `memory` e `pids` habilitados, além de mount namespaces e seccomp-bpf. Ela falha fechada se não puder aplicar esses controles e só escuta em loopback. Veja `docs/SANDBOX.md` para requisitos, limites e implantação.
+A sandbox requer Linux x86_64, Go 1.20+, root e cgroup v2 com `cpu`, `memory` e `pids` habilitados, além de mount namespaces e `seccomp-bpf`. Ela falha fechada (*fail-closed*) se não puder aplicar esses controles e escuta apenas em loopback. Veja [`docs/SANDBOX.md`](docs/SANDBOX.md) para requisitos, limites e implantação.
 
-Para instalação persistente, use o instalador systemd documentado em [`docs/INSTALACAO.md`](docs/INSTALACAO.md). Ele copia a sandbox para uma localização root-owned; execute-o apenas com uma revisão confiável e limpa do Git. Evite iniciar manualmente como root um binário dentro do checkout editável.
+Para instalação persistente, use o instalador `systemd` documentado em [`docs/INSTALACAO.md`](docs/INSTALACAO.md), que copia a sandbox para um diretório pertencente ao `root` (execute apenas a partir de uma revisão confiável e limpa do Git).
+
+---
 
 ## Documentação
 
-- `docs/PROJETO.md` — visão geral e arquitetura de alto nível
-- `docs/INSTALACAO.md` — instalação local e systemd passo a passo
-- `docs/ARCHITECTURE.md` — componentes internos
-- `docs/USAGE.md` — uso completo
-- `docs/TOOLS.md` — todas as 50 ferramentas
-- `docs/GATEWAY.md` — gateways Telegram, WhatsApp, Discord e Instagram Messaging
-- `docs/SANDBOX.md` — detalhes da sandbox
-- `docs/MCP.md` — Model Context Protocol
-- `docs/CONFIG.md` — gerenciamento de configurações
-- `docs/LEARNING.md` — aprendizado contínuo
+- [`docs/PROJETO.md`](docs/PROJETO.md) — visão geral e arquitetura de alto nível
+- [`docs/INSTALACAO.md`](docs/INSTALACAO.md) — instalação local e systemd passo a passo
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — componentes internos
+- [`docs/USAGE.md`](docs/USAGE.md) — guia completo de uso
+- [`docs/TOOLS.md`](docs/TOOLS.md) — todas as 50 ferramentas
+- [`docs/GATEWAY.md`](docs/GATEWAY.md) — gateways Telegram, WhatsApp, Discord e Instagram Messaging
+- [`docs/SANDBOX.md`](docs/SANDBOX.md) — detalhes da sandbox Go
+- [`docs/MCP.md`](docs/MCP.md) — Model Context Protocol
+- [`docs/CONFIG.md`](docs/CONFIG.md) — gerenciamento de configurações
+- [`docs/LEARNING.md`](docs/LEARNING.md) — aprendizado contínuo
 - [`desktop/README.md`](desktop/README.md) — Zeus Desktop (Rust nativo), bridge JSONL e instalador
 
 ## Autor
 
 - **Valdeir Pereira da Silva**
-
