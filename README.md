@@ -2,6 +2,10 @@
 
 Agent harness minimalista escrito em Python. Agente = modelo + harness. Zeus é o harness: loop ReAct, registro de ferramentas, roteamento de modelos, memória persistente, sandbox isolada, observabilidade e execução em background.
 
+O projeto conta com duas interfaces principais sobre o mesmo core:
+- **Zeus CLI**: interface interativa no terminal, modo single-query, gateways e automações.
+- **Zeus Desktop**: cliente gráfico nativo em Rust (`eframe`/`egui`) integrado ao core via JSONL.
+
 ## Estrutura
 
 ```
@@ -20,6 +24,8 @@ scripts/            # instaladores locais, Zeus Desktop e serviços systemd
 ```
 
 ## Instalação
+
+### Zeus CLI (Core)
 
 Em Linux/macOS com Python 3.8+ e Git, clone o repositório e execute o instalador sem `sudo`:
 
